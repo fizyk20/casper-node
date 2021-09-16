@@ -39,8 +39,13 @@ function _upgrade_node() {
     )
     python3 -c "${SCRIPT[*]}"
 
-    # Copy casper-node binary.
     PATH_TO_NODE=$(get_path_to_node "$NODE_ID")
+
+    # Store old versions
+    OLD_CFG_VERSIONS=$(find "$PATH_TO_NODE"/config/* -type d)
+    OLD_BIN_VERSIONS=$(find "$PATH_TO_NODE"/bin/* -type d)
+
+    # Copy casper-node binary.
     mkdir -p "$PATH_TO_NODE"/bin/"$PROTOCOL_VERSION"
 
     if [ "$NCTL_COMPILE_TARGET" = "debug" ]; then
@@ -56,6 +61,17 @@ function _upgrade_node() {
     # Copy config file.
     cp $(get_path_to_node_config_file "$NODE_ID") "$PATH_TO_NODE"/config/"$PROTOCOL_VERSION"/
 
+    # Remove old versions
+    for version in $OLD_CFG_VERSIONS; do
+        rm -r "$version"
+    done;
+    for version in $OLD_BIN_VERSIONS; do
+        rm -r "$version"
+    done;
+    # Remove launcher state (would cause the launcher to look for the old version)
+    if [ -e "$PATH_TO_NODE"/config/casper-node-launcher-state.toml ]; then
+        rm "$PATH_TO_NODE"/config/casper-node-launcher-state.toml
+    fi
     # Clean up.
     rm "$PATH_TO_UPGRADED_CHAINSPEC_FILE"
 }

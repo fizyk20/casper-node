@@ -270,7 +270,8 @@ async fn get_trusted_key_block_info(
         // Check that we are not restarting right after an emergency restart, which is too early
         match chainspec.protocol_config.last_emergency_restart {
             Some(last_emergency_restart)
-                if last_emergency_restart > current_header_to_walk_back_from.era_id() =>
+                if last_emergency_restart
+                    > current_header_to_walk_back_from.next_block_era_id() =>
             {
                 return Err(LinearChainSyncError::TrustedHeaderEraTooEarly {
                     trusted_header: Box::new(trusted_header.clone()),
@@ -633,7 +634,7 @@ pub(crate) async fn run_fast_sync_task(
     let maybe_last_emergency_restart_era_id = chainspec.protocol_config.last_emergency_restart;
     match maybe_last_emergency_restart_era_id {
         Some(last_emergency_restart_era)
-            if last_emergency_restart_era > trusted_block_header.era_id() =>
+            if last_emergency_restart_era > trusted_block_header.next_block_era_id() =>
         {
             return Err(
                 LinearChainSyncError::TryingToJoinBeforeLastEmergencyRestartEra {

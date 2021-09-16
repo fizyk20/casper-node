@@ -33,7 +33,7 @@ use crate::{
     },
     protocol::Message,
     reactor::{self, participating, EventQueueHandle, ReactorExit},
-    types::{chainspec, NodeId},
+    types::{chainspec, ExitCode, NodeId},
     utils::WithDir,
     NodeRng,
 };
@@ -283,7 +283,20 @@ impl reactor::Reactor for Reactor {
     }
 
     fn maybe_exit(&self) -> Option<ReactorExit> {
-        Some(self.chainspec_loader.reactor_exit())
+        match (
+            self.chainspec_loader.next_upgrade(),
+            self.storage.read_highest_block_header(),
+        ) {
+            (Some(upgrade), Ok(Some(header)))
+                if upgrade.activation_point().era_id() <= header.next_block_era_id() =>
+            {
+                // the highest block we have in storage is either the switch block in the last era
+                // before the activation point, or is already in an era that should be created
+                // after an upgrade
+                Some(ReactorExit::ProcessShouldExit(ExitCode::Success))
+            }
+            _ => Some(self.chainspec_loader.reactor_exit()),
+        }
     }
 }
 
