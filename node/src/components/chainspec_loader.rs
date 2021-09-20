@@ -457,6 +457,15 @@ impl ChainspecLoader {
         }
 
         let unplanned_shutdown = match self.next_upgrade {
+            Some(ref next_upgrade)
+                if highest_block.header().is_switch_block()
+                    && highest_block_era_id.successor()
+                        == next_upgrade.activation_point.era_id() =>
+            {
+                trace!("valid run after an unplanned shutdown when upgrade was due");
+                self.reactor_exit = Some(ReactorExit::ProcessShouldExit(ExitCode::Success));
+                return Effects::new();
+            }
             Some(ref next_upgrade) => highest_block_era_id < next_upgrade.activation_point.era_id(),
             None => true,
         };
