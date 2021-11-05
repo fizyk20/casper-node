@@ -84,7 +84,7 @@ use crate::{
     },
     storage::{
         global_state::{lmdb::LmdbGlobalState, StateProvider},
-        trie::Trie,
+        trie::{Trie, TrieOrChunkedData},
     },
 };
 
@@ -1733,9 +1733,13 @@ where
     where
         Error: From<S::Error>,
     {
-        self.state
-            .get_trie(correlation_id, &trie_key)
-            .map_err(Error::from)
+        Ok(self
+            .state
+            .get_trie(correlation_id, &trie_key)?
+            .map(|trie_or_chunked_data| match trie_or_chunked_data {
+                TrieOrChunkedData::Trie(maybe_trie) => maybe_trie,
+                TrieOrChunkedData::ChunkWithProof(_) => unimplemented!(),
+            }))
     }
 
     /// Puts a trie and finds missing descendant trie keys.
