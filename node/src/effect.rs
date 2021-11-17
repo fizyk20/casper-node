@@ -89,7 +89,7 @@ use casper_execution_engine::{
         upgrade::{UpgradeConfig, UpgradeSuccess},
         BalanceRequest, BalanceResult, GetBidsRequest, GetBidsResult, QueryRequest, QueryResult,
     },
-    storage::trie::Trie,
+    storage::trie::{Trie, TrieOrChunkedData, TrieOrChunkedDataId},
 };
 use casper_hashing::Digest;
 use casper_types::{
@@ -123,7 +123,7 @@ use announcements::{
 use requests::{
     BlockPayloadRequest, BlockProposerRequest, BlockValidationRequest, ChainspecLoaderRequest,
     ConsensusRequest, ContractRuntimeRequest, FetcherRequest, MetricsRequest, NetworkInfoRequest,
-    NetworkRequest, StateStoreRequest, StorageRequest,
+    NetworkRequest, StateStoreRequest, StorageRequest, TrieFetcherRequest,
 };
 
 use self::announcements::{BlockProposerAnnouncement, BlocklistAnnouncement};
@@ -976,13 +976,15 @@ impl<REv> EffectBuilder<REv> {
     /// Get a trie by its hash key.
     pub(crate) async fn get_trie(
         self,
+        index: u64,
         trie_key: Digest,
-    ) -> Result<Option<Trie<Key, StoredValue>>, engine_state::Error>
+    ) -> Result<Option<TrieOrChunkedData>, engine_state::Error>
     where
         REv: From<ContractRuntimeRequest>,
     {
         self.make_request(
             |responder| ContractRuntimeRequest::GetTrie {
+                index,
                 trie_key,
                 responder,
             },
@@ -1181,6 +1183,50 @@ impl<REv> EffectBuilder<REv> {
             |responder| FetcherRequest::Fetch {
                 id: block_height,
                 peer,
+                responder,
+            },
+            QueueKind::Regular,
+        )
+        .await
+    }
+
+    /// Requests a trie or chunked data.
+    pub(crate) async fn fetch_trie_or_chunk<I>(
+        self,
+        id: TrieOrChunkedDataId,
+        peer: I,
+    ) -> Option<FetchResult<TrieOrChunkedData, I>>
+    where
+        REv: From<FetcherRequest<I, TrieOrChunkedData>>,
+        I: Send + 'static,
+    {
+        self.make_request(
+            |responder| FetcherRequest::Fetch {
+                id,
+                peer,
+                responder,
+            },
+            QueueKind::Regular,
+        )
+        .await
+    }
+
+    // TODO: remove this once used by fast sync
+    #[allow(unused)]
+    /// Requests a trie node from a peer.
+    pub(crate) async fn fetch_trie<I>(
+        self,
+        hash: Digest,
+        peers: Vec<I>,
+    ) -> Option<Trie<Key, StoredValue>>
+    where
+        REv: From<TrieFetcherRequest<I>>,
+        I: Send + 'static,
+    {
+        self.make_request(
+            |responder| TrieFetcherRequest {
+                peers,
+                hash,
                 responder,
             },
             QueueKind::Regular,

@@ -62,6 +62,7 @@ impl Payload for Message {
                     Tag::BlockByHeight => MessageKind::BlockTransfer,
                     Tag::BlockHeaderByHash => MessageKind::BlockTransfer,
                     Tag::BlockHeaderAndFinalitySignaturesByHeight => MessageKind::BlockTransfer,
+                    Tag::Trie => MessageKind::DeployTransfer, // TODO: is that correct? tries used to use the Deploy tag
                 }
             }
             Message::FinalitySignature(_) => MessageKind::Consensus,
@@ -81,6 +82,7 @@ impl Payload for Message {
                 Tag::BlockByHeight => 0,
                 Tag::BlockHeaderByHash => 0,
                 Tag::BlockHeaderAndFinalitySignaturesByHeight => 0,
+                Tag::Trie => weights.deploy_requests, // TODO: is that correct? tries used to use the Deploy tag
             },
             Message::FinalitySignature(_) => 0,
         }

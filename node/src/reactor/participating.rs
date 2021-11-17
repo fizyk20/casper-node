@@ -22,6 +22,8 @@ use reactor::ReactorEvent;
 use serde::Serialize;
 use tracing::{debug, error, trace, warn};
 
+use casper_execution_engine::storage::trie::TrieOrChunkedDataId;
+
 #[cfg(test)]
 use crate::testing::network::NetworkedReactor;
 
@@ -558,6 +560,38 @@ impl Reactor {
                     }
                 }
             }
+            Tag::Trie => {
+                let trie_or_chunk_id: TrieOrChunkedDataId =
+                    match bincode::deserialize(serialized_id) {
+                        Ok(trie_or_chunk_id) => trie_or_chunk_id,
+                        Err(error) => {
+                            error!(
+                                "failed to decode {:?} from {}: {}",
+                                serialized_id, sender, error
+                            );
+                            return Effects::new();
+                        }
+                    };
+                let TrieOrChunkedDataId(index, trie_key) = trie_or_chunk_id;
+                match self.contract_runtime.read_trie(index, trie_key) {
+                    Ok(Some(trie_or_chunk)) => match Message::new_get_response(&trie_or_chunk) {
+                        Ok(message) => {
+                            return effect_builder.send_message(sender, message).ignore();
+                        }
+                        Err(error) => error!("failed to create get-response: {}", error),
+                    },
+                    Ok(None) => debug!(
+                        "failed to get trie or chunk ({},{}) for {}",
+                        index, trie_key, sender
+                    ),
+                    Err(error) => {
+                        error!(
+                            "failed to get trie or chunk ({},{}) for {}: {}",
+                            index, trie_key, sender, error
+                        )
+                    }
+                }
+            }
         }
         Effects::new()
     }
@@ -939,6 +973,7 @@ impl reactor::Reactor for Reactor {
                             );
                             return Effects::new();
                         }
+                        Tag::Trie => unimplemented!(),
                     },
                     Message::FinalitySignature(fs) => ParticipatingEvent::LinearChain(
                         linear_chain::Event::FinalitySignatureReceived(fs, true),

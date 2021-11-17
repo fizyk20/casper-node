@@ -7,9 +7,9 @@ use derive_more::Display;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use casper_execution_engine::storage::trie::Trie;
+use casper_execution_engine::storage::trie::{TrieOrChunkedData, TrieOrChunkedDataId};
 use casper_hashing::Digest;
-use casper_types::{bytesrepr::ToBytes, Key, StoredValue};
+use casper_types::bytesrepr::ToBytes;
 
 use crate::types::{BlockHash, BlockHeader, BlockHeaderWithMetadata};
 
@@ -42,6 +42,8 @@ pub enum Tag {
     BlockHeaderByHash,
     /// A block header and its finality signatures requested by its height in the linear chain.
     BlockHeaderAndFinalitySignaturesByHeight,
+    /// A global storage trie.
+    Trie,
 }
 
 /// A trait which allows an implementing type to be used by the gossiper and fetcher components, and
@@ -59,14 +61,22 @@ pub trait Item: Clone + Serialize + DeserializeOwned + Send + Sync + Debug + Dis
     fn id(&self) -> Self::Id;
 }
 
-impl Item for Trie<Key, StoredValue> {
-    type Id = Digest;
-    const TAG: Tag = Tag::Deploy;
+impl Item for TrieOrChunkedData {
+    type Id = TrieOrChunkedDataId;
+    const TAG: Tag = Tag::Trie;
     const ID_IS_COMPLETE_ITEM: bool = false;
 
     fn id(&self) -> Self::Id {
-        let node_bytes = self.to_bytes().expect("Could not serialize trie to bytes");
-        Digest::hash(&node_bytes)
+        match self {
+            TrieOrChunkedData::Trie(trie) => {
+                let node_bytes = trie.to_bytes().expect("Could not serialize trie to bytes");
+                TrieOrChunkedDataId(0, Digest::hash(&node_bytes))
+            }
+            TrieOrChunkedData::ChunkWithProof(chunked_data) => TrieOrChunkedDataId(
+                chunked_data.proof().index(),
+                chunked_data.proof().root_hash(),
+            ),
+        }
     }
 }
 

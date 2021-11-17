@@ -18,6 +18,8 @@ use reactor::ReactorEvent;
 use serde::Serialize;
 use tracing::{debug, error, info, warn};
 
+use casper_execution_engine::storage::trie::TrieOrChunkedData;
+
 #[cfg(test)]
 use crate::testing::network::NetworkedReactor;
 use crate::{
@@ -28,7 +30,7 @@ use crate::{
         deploy_acceptor::{self, DeployAcceptor},
         event_stream_server,
         event_stream_server::{DeployGetter, EventStreamServer},
-        fetcher::{self, Fetcher},
+        fetcher::{self, Fetcher, TrieFetcher, TrieFetcherEvent},
         gossiper::{self, Gossiper},
         linear_chain,
         linear_chain_sync::{self, LinearChainSync},
@@ -115,6 +117,14 @@ pub(crate) enum JoinerEvent {
     #[from]
     DeployFetcher(#[serde(skip_serializing)] fetcher::Event<Deploy>),
 
+    /// Trie or chunk fetcher event.
+    #[from]
+    TrieOrChunkFetcher(#[serde(skip_serializing)] fetcher::Event<TrieOrChunkedData>),
+
+    /// Trie fetcher event.
+    #[from]
+    TrieFetcher(#[serde(skip_serializing)] TrieFetcherEvent<NodeId>),
+
     /// Deploy acceptor event.
     #[from]
     DeployAcceptor(#[serde(skip_serializing)] deploy_acceptor::Event),
@@ -151,6 +161,10 @@ pub(crate) enum JoinerEvent {
     /// Deploy fetcher request.
     #[from]
     DeployFetcherRequest(#[serde(skip_serializing)] FetcherRequest<NodeId, Deploy>),
+
+    /// Trie or chunk fetcher request.
+    #[from]
+    TrieOrChunkFetcherRequest(#[serde(skip_serializing)] FetcherRequest<NodeId, TrieOrChunkedData>),
 
     /// Block validation request.
     #[from]
@@ -220,6 +234,8 @@ impl ReactorEvent for JoinerEvent {
             JoinerEvent::BlockFetcher(_) => "BlockFetcher",
             JoinerEvent::BlockByHeightFetcher(_) => "BlockByHeightFetcher",
             JoinerEvent::DeployFetcher(_) => "DeployFetcher",
+            JoinerEvent::TrieOrChunkFetcher(_) => "TrieOrChunkFetcher",
+            JoinerEvent::TrieFetcher(_) => "TrieFetcher",
             JoinerEvent::DeployAcceptor(_) => "DeployAcceptor",
             JoinerEvent::BlockValidator(_) => "BlockValidator",
             JoinerEvent::LinearChainSync(_) => "LinearChainSync",
@@ -229,6 +245,7 @@ impl ReactorEvent for JoinerEvent {
             JoinerEvent::BlockFetcherRequest(_) => "BlockFetcherRequest",
             JoinerEvent::BlockByHeightFetcherRequest(_) => "BlockByHeightFetcherRequest",
             JoinerEvent::DeployFetcherRequest(_) => "DeployFetcherRequest",
+            JoinerEvent::TrieOrChunkFetcherRequest(_) => "TrieOrChunkFetcherRequest",
             JoinerEvent::BlockValidatorRequest(_) => "BlockValidatorRequest",
             JoinerEvent::BlockProposerRequest(_) => "BlockProposerRequest",
             JoinerEvent::StateStoreRequest(_) => "StateStoreRequest",
@@ -299,11 +316,18 @@ impl Display for JoinerEvent {
             JoinerEvent::DeployFetcherRequest(request) => {
                 write!(f, "deploy fetcher request: {}", request)
             }
+            JoinerEvent::TrieOrChunkFetcherRequest(request) => {
+                write!(f, "trie or chunk fetcher request: {}", request)
+            }
             JoinerEvent::LinearChainSync(event) => write!(f, "linear chain: {}", event),
             JoinerEvent::BlockFetcher(event) => write!(f, "block fetcher: {}", event),
             JoinerEvent::BlockByHeightFetcherRequest(request) => {
                 write!(f, "block by height fetcher request: {}", request)
             }
+            JoinerEvent::TrieOrChunkFetcher(request) => {
+                write!(f, "trie or chunk fetcher request: {}", request)
+            }
+            JoinerEvent::TrieFetcher(request) => write!(f, "trie fetcher request: {}", request),
             JoinerEvent::BlockValidator(event) => write!(f, "block validator event: {}", event),
             JoinerEvent::DeployFetcher(event) => write!(f, "deploy fetcher event: {}", event),
             JoinerEvent::BlockProposerRequest(req) => write!(f, "block proposer request: {}", req),
@@ -356,6 +380,8 @@ pub(crate) struct Reactor {
     block_by_height_fetcher: Fetcher<BlockByHeight>,
     pub(super) block_header_by_hash_fetcher: Fetcher<BlockHeader>,
     pub(super) block_header_with_metadata_fetcher: Fetcher<BlockHeaderWithMetadata>,
+    trie_or_chunk_fetcher: Fetcher<TrieOrChunkedData>,
+    trie_fetcher: TrieFetcher<NodeId>,
     #[data_size(skip)]
     deploy_acceptor: DeployAcceptor,
     #[data_size(skip)]
@@ -481,6 +507,9 @@ impl reactor::Reactor for Reactor {
         let block_header_by_hash_fetcher: Fetcher<BlockHeader> =
             Fetcher::new("block_header_by_hash", config.fetcher, registry)?;
 
+        let trie_or_chunk_fetcher = Fetcher::new("trie", config.fetcher, registry)?;
+        let trie_fetcher = TrieFetcher::new();
+
         let deploy_acceptor = DeployAcceptor::new(
             config.deploy_acceptor,
             &*chainspec_loader.chainspec(),
@@ -539,6 +568,8 @@ impl reactor::Reactor for Reactor {
                 block_header_by_hash_fetcher,
                 block_header_with_metadata_fetcher:
                     block_header_and_finality_signatures_by_height_fetcher,
+                trie_or_chunk_fetcher,
+                trie_fetcher,
                 deploy_acceptor,
                 event_queue_metrics,
                 rest_server,
@@ -651,6 +682,24 @@ impl reactor::Reactor for Reactor {
                     });
                     self.dispatch_event(effect_builder, rng, event)
                 }
+                Message::GetResponse {
+                    tag: Tag::Trie,
+                    serialized_item,
+                } => {
+                    let trie_or_chunk: Box<TrieOrChunkedData> =
+                        match bincode::deserialize(&serialized_item) {
+                            Ok(trie_or_chunk) => Box::new(trie_or_chunk),
+                            Err(err) => {
+                                error!("failed to decode a trie or chunk from {}: {}", sender, err);
+                                return Effects::new();
+                            }
+                        };
+                    let event = fetcher::Event::GotRemotely {
+                        item: trie_or_chunk,
+                        source: Source::Peer(sender),
+                    };
+                    self.dispatch_event(effect_builder, rng, JoinerEvent::TrieOrChunkFetcher(event))
+                }
                 Message::AddressGossiper(message) => {
                     let event = JoinerEvent::AddressGossiper(gossiper::Event::MessageReceived {
                         sender,
@@ -742,10 +791,24 @@ impl reactor::Reactor for Reactor {
                 rng,
                 JoinerEvent::DeployFetcher(request.into()),
             ),
+            JoinerEvent::TrieOrChunkFetcherRequest(request) => self.dispatch_event(
+                effect_builder,
+                rng,
+                JoinerEvent::TrieOrChunkFetcher(request.into()),
+            ),
             JoinerEvent::BlockByHeightFetcherRequest(request) => self.dispatch_event(
                 effect_builder,
                 rng,
                 JoinerEvent::BlockByHeightFetcher(request.into()),
+            ),
+            JoinerEvent::TrieOrChunkFetcher(event) => reactor::wrap_effects(
+                JoinerEvent::TrieOrChunkFetcher,
+                self.trie_or_chunk_fetcher
+                    .handle_event(effect_builder, rng, event),
+            ),
+            JoinerEvent::TrieFetcher(event) => reactor::wrap_effects(
+                JoinerEvent::TrieFetcher,
+                self.trie_fetcher.handle_event(effect_builder, rng, event),
             ),
             JoinerEvent::ContractRuntime(event) => reactor::wrap_effects(
                 JoinerEvent::ContractRuntime,

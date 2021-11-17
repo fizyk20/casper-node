@@ -25,7 +25,7 @@ use casper_execution_engine::{
         query::{QueryRequest, QueryResult},
         upgrade::{UpgradeConfig, UpgradeSuccess},
     },
-    storage::trie::Trie,
+    storage::trie::{Trie, TrieOrChunkedData},
 };
 use casper_hashing::Digest;
 use casper_types::{
@@ -757,10 +757,12 @@ pub(crate) enum ContractRuntimeRequest {
     },
     /// Get a trie by its hash key.
     GetTrie {
+        /// The index of the trie chunk.
+        index: u64,
         /// The hash of the value to get from the `TrieStore`.
         trie_key: Digest,
         /// Responder to call with the result.
-        responder: Responder<Result<Option<Trie<Key, StoredValue>>, engine_state::Error>>,
+        responder: Responder<Result<Option<TrieOrChunkedData>, engine_state::Error>>,
     },
     /// Insert a trie into global storage
     PutTrie {
@@ -869,6 +871,24 @@ impl<I, T: Item> Display for FetcherRequest<I, T> {
         match self {
             FetcherRequest::Fetch { id, .. } => write!(formatter, "request item by id {}", id),
         }
+    }
+}
+
+/// TrieFetcher related requests.
+#[derive(Debug, Serialize)]
+#[must_use]
+pub(crate) struct TrieFetcherRequest<I> {
+    /// The peers to try to fetch from.
+    pub(crate) peers: Vec<I>,
+    /// The hash of the trie node.
+    pub(crate) hash: Digest,
+    /// Responder to call with the result.
+    pub(crate) responder: Responder<Option<Trie<Key, StoredValue>>>,
+}
+
+impl<I> Display for TrieFetcherRequest<I> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        write!(formatter, "request trie by hash {}", self.hash)
     }
 }
 
