@@ -14,6 +14,7 @@ use futures::{
     stream::{futures_unordered::FuturesUnordered, StreamExt},
     TryStreamExt,
 };
+use num::rational::Ratio;
 use prometheus::IntGauge;
 use quanta::Instant;
 use tracing::{debug, error, info, trace, warn};
@@ -1258,6 +1259,97 @@ async fn fetch_block_worker(
             }
         }
     }
+}
+
+struct BlockSignaturesCollector(Option<BlockSignatures>);
+
+impl BlockSignaturesCollector {
+    fn new() -> Self {
+        Self(None)
+    }
+
+    fn add_signatures(&mut self, maybe_signatures: Option<BlockSignatures>) {
+        let signatures = match maybe_signatures {
+            Some(sigs) => sigs,
+            None => return,
+        };
+
+        match &mut self.0 {
+            None => {
+                self.0 = Some(signatures);
+            }
+            Some(old_sigs) => {
+                for (pub_key, signature) in signatures.proofs {
+                    old_sigs.insert_proof(pub_key, signature);
+                }
+            }
+        }
+    }
+
+    fn check_if_sufficient(
+        &self,
+        validator_weights: &BTreeMap<PublicKey, U512>,
+        finality_threshold_fraction: Ratio<u64>,
+    ) -> bool {
+        self.0.as_ref().map_or(false, |sigs| {
+            consensus::check_sufficient_finality_signatures(
+                validator_weights,
+                finality_threshold_fraction,
+                sigs,
+            )
+            .is_ok()
+        })
+    }
+
+    fn into_inner(self) -> Option<BlockSignatures> {
+        self.0
+    }
+}
+
+async fn fetch_finality_signatures(
+    block_hash: &BlockHash,
+    validator_weights: &BTreeMap<PublicKey, U512>,
+    ctx: &ChainSyncContext<'_>,
+) -> Option<BlockSignatures> {
+    let mut peer_list = ctx
+        .effect_builder
+        .get_fully_connected_non_joiner_peers()
+        .await;
+    ctx.filter_bad_peers(&mut peer_list);
+
+    let mut sig_collector = BlockSignaturesCollector::new();
+
+    for peer in peer_list {
+        let maybe_signatures = match ctx
+            .effect_builder
+            .fetch::<BlockSignatures>(*block_hash, peer)
+            .await
+        {
+            Ok(FetchedData::FromStorage { item, .. }) => {
+                trace!(
+                    ?block_hash,
+                    ?peer,
+                    "did not get FinalitySignatures from peer, got from storage instead",
+                );
+                Some(*item)
+            }
+            Ok(FetchedData::FromPeer { item, .. }) => {
+                trace!(?block_hash, ?peer, "fetched FinalitySignatures");
+                Some(*item)
+            }
+            Err(_) => None,
+        };
+
+        sig_collector.add_signatures(maybe_signatures);
+
+        if sig_collector
+            .check_if_sufficient(validator_weights, ctx.config.finality_threshold_fraction())
+        {
+            break;
+        }
+    }
+
+    sig_collector.into_inner()
 }
 
 /// Runs the chain synchronization task.
