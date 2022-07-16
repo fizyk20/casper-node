@@ -1977,18 +1977,19 @@ impl<REv> EffectBuilder<REv> {
     }
 
     /// Gets the correct era validators set for the given era.
-    /// Takes emergency restarts into account based on the information from the chainspec loader.
+    /// Takes emergency restarts into account based on the information in the immediate switch
+    /// block after a restart.
     pub(crate) async fn get_era_validators(self, era_id: EraId) -> Option<BTreeMap<PublicKey, U512>>
     where
         REv: From<StorageRequest> + From<ChainspecLoaderRequest>,
     {
-        let CurrentRunInfo {
-            last_emergency_restart,
-            ..
-        } = self.get_current_run_info().await;
-        let cutoff_era_id = last_emergency_restart.unwrap_or_else(|| EraId::new(0));
-        if era_id < cutoff_era_id {
-            // we don't support getting the validators from before the last emergency restart
+        // If there was an emergency restart at `era_id`, the switch block at this era will be the
+        // immediate switch block created after the emergency restart. Check for such a case, as we
+        // can't return the correct validator set then.
+        let maybe_block_header = self
+            .get_switch_block_header_at_era_id_from_storage(era_id)
+            .await;
+        if maybe_block_header.map_or(false, |header| header.is_first_after_emergency_restart()) {
             return None;
         }
         // Era 0 contains no blocks other than the genesis immediate switch block which can be used

@@ -357,7 +357,6 @@ where
         is_emergency_upgrade: bool,
     ) -> Effects<Event> {
         let protocol_version = self.config.protocol_version();
-        let last_emergency_restart = self.config.last_emergency_restart();
         let verifiable_chunked_hash_activation = self.config.verifiable_chunked_hash_activation();
         async move {
             let mut block_and_execution_effects = effect_builder

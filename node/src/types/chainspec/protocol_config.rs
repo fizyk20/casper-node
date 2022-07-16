@@ -31,8 +31,6 @@ pub struct ProtocolConfig {
     /// Any arbitrary updates we might want to make to the global state at the start of the era
     /// specified in the activation point.
     pub(crate) global_state_update: Option<GlobalStateUpdate>,
-    /// The era ID in which the last emergency restart happened.
-    pub(crate) last_emergency_restart: Option<EraId>,
     /// The era ID starting at which the new Merkle tree-based hashing scheme is applied.
     pub(crate) verifiable_chunked_hash_activation: EraId,
 }
