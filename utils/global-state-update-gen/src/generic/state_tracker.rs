@@ -214,6 +214,10 @@ impl<T: StateReader> StateTracker<T> {
     pub fn set_bid(&mut self, public_key: PublicKey, bid: Bid, slash: bool) {
         let maybe_current_bid = self.get_bids().get(&public_key).cloned();
 
+        if Some(&bid) == maybe_current_bid.as_ref() {
+            return;
+        }
+
         let new_amount = *bid.staked_amount();
         let old_amount = maybe_current_bid
             .as_ref()

@@ -24,6 +24,7 @@ pub(crate) fn print_entry(key: &Key, value: &StoredValue) {
     println!();
 }
 
+#[derive(Debug)]
 pub struct ValidatorsDiff {
     pub added: BTreeSet<PublicKey>,
     pub removed: BTreeSet<PublicKey>,

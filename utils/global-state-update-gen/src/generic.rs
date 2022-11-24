@@ -183,7 +183,10 @@ fn gen_snapshot_from_old(
             |public_key, recipient| match validators_map.get(public_key) {
                 // If the validator's stake is configured to be zero, we drop them from the
                 // snapshot.
-                Some(validator) if validator.bonded_amount == U512::zero() => false,
+                Some(validator) if validator.bonded_amount == U512::zero() => {
+                    eprintln!("dropping {}", public_key);
+                    false
+                }
                 // Otherwise, we keep them, but modify the properties.
                 Some(validator) => {
                     *recipient = SeigniorageRecipient::new(
@@ -228,6 +231,7 @@ fn gen_snapshot_from_old(
     }
 
     // Return the modified snapshot.
+    eprintln!("snapshot\n{:#?}", snapshot);
     snapshot
 }
 
@@ -244,6 +248,7 @@ pub fn add_and_remove_bids<T: StateReader>(
     only_listed_validators: bool,
     slash: bool,
 ) {
+    eprintln!("validators_diff\n{:#?}", validators_diff);
     let to_unbid = if only_listed_validators {
         let large_bids = find_large_bids(state, new_snapshot);
         validators_diff
