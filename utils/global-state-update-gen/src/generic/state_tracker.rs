@@ -217,6 +217,9 @@ impl<T: StateReader> StateTracker<T> {
         if Some(&bid) == maybe_current_bid.as_ref() {
             eprintln!("no change in bid for {}, returning", public_key);
             return;
+        } else {
+            eprintln!("old bid\n{:#?}", maybe_current_bid);
+            eprintln!("new bid\n{:#?}", bid);
         }
 
         eprintln!("bid for {}", public_key);
@@ -224,9 +227,14 @@ impl<T: StateReader> StateTracker<T> {
         eprintln!("new amount: {}", new_amount);
         let old_amount = maybe_current_bid
             .as_ref()
+            .map(|bid| *bid.staked_amount())
+            .unwrap_or_else(U512::zero);
+        let old_purse_amount = maybe_current_bid
+            .as_ref()
             .map(|bid| self.get_purse_balance(*bid.bonding_purse()))
             .unwrap_or_else(U512::zero);
         eprintln!("old amount: {}", old_amount);
+        eprintln!("old purse amount: {}", old_purse_amount);
 
         // we called `get_bids` above, so `bids_cache` will be `Some`
         self.bids_cache
@@ -240,7 +248,7 @@ impl<T: StateReader> StateTracker<T> {
         self.write_entry(Key::Bid(account_hash), bid.clone().into());
 
         // Update the bonding purses - this will also take care of the total supply changes.
-        if let Some(old_bid) = maybe_current_bid {
+        if let Some(old_bid) = maybe_current_bid.as_ref() {
             // only zero the bonding purse and write the balance to the new purse if the new one is
             // different (just to save unnecessary writes)
             if old_bid.bonding_purse() != bid.bonding_purse() {
@@ -266,10 +274,10 @@ impl<T: StateReader> StateTracker<T> {
                     eprintln!("initial processing delegator {}", delegator_pub_key);
                     // if we're transferring funds to a new purse, set the new purse balance to the
                     // old amount
-                    let old_amount = self.get_purse_balance(*delegator.bonding_purse());
+                    let old_purse_amount = self.get_purse_balance(*delegator.bonding_purse());
                     if let Some(new_delegator) = bid.delegators().get(delegator_pub_key) {
                         eprintln!("setting new purse");
-                        self.set_purse_balance(*new_delegator.bonding_purse(), old_amount);
+                        self.set_purse_balance(*new_delegator.bonding_purse(), old_purse_amount);
                     }
                     self.set_purse_balance(*delegator.bonding_purse(), U512::zero());
                 } else {
@@ -277,7 +285,7 @@ impl<T: StateReader> StateTracker<T> {
                         "unbonding delegator (initial processing) {}",
                         delegator_pub_key
                     );
-                    let amount = self.get_purse_balance(*delegator.bonding_purse());
+                    let amount = *delegator.staked_amount();
                     self.create_unbonding_purse(
                         *delegator.bonding_purse(),
                         &public_key,
@@ -290,7 +298,10 @@ impl<T: StateReader> StateTracker<T> {
 
         if (slash && new_amount != old_amount) || new_amount > old_amount {
             eprintln!("setting purse to new_amount");
-            self.set_purse_balance(*bid.bonding_purse(), new_amount);
+            self.set_purse_balance(
+                *bid.bonding_purse(),
+                new_amount + old_purse_amount - old_amount,
+            );
         } else if new_amount < old_amount {
             eprintln!("creating unbonding purse");
             self.create_unbonding_purse(
@@ -302,14 +313,22 @@ impl<T: StateReader> StateTracker<T> {
         }
 
         for (delegator_public_key, delegator) in bid.delegators() {
-            let old_amount = self.get_purse_balance(*delegator.bonding_purse());
+            let old_amount = maybe_current_bid
+                .as_ref()
+                .and_then(|bid| bid.delegators().get(delegator_public_key))
+                .map(|delegator| *delegator.staked_amount())
+                .unwrap_or_else(U512::zero);
+            let old_purse_amount = self.get_purse_balance(*delegator.bonding_purse());
             let new_amount = *delegator.staked_amount();
             if (slash && new_amount != old_amount) || new_amount > old_amount {
                 eprintln!(
                     "setting purse to new amount for delegator {}",
                     delegator_public_key
                 );
-                self.set_purse_balance(*delegator.bonding_purse(), *delegator.staked_amount());
+                self.set_purse_balance(
+                    *delegator.bonding_purse(),
+                    new_amount + old_purse_amount - old_amount,
+                );
             } else if new_amount < old_amount {
                 eprintln!(
                     "creating unbonding purse for delegator {}",
