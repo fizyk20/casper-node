@@ -34,8 +34,11 @@ impl MainReactor {
                 .validator_matrix
                 .validator_weights(highest_switch_block_era)
             {
-                Some(validator_weights) => self
-                    .upgrade_shutdown_has_sufficient_finality(effect_builder, &validator_weights),
+                Some(validator_weights) => self.upgrade_shutdown_has_sufficient_finality(
+                    effect_builder,
+                    &validator_weights,
+                    block_header.height(),
+                ),
                 None => UpgradeShutdownInstruction::Fatal(
                     "validator_weights cannot be missing".to_string(),
                 ),
@@ -48,12 +51,15 @@ impl MainReactor {
         &self,
         effect_builder: EffectBuilder<MainEvent>,
         validator_weights: &EraValidatorWeights,
+        highest_block_height: u64,
     ) -> UpgradeShutdownInstruction {
         match self
             .storage
             .era_has_sufficient_finality_signatures(validator_weights)
         {
-            Ok(true) => {
+            Ok(true)
+                if self.storage.highest_complete_block_height() == Some(highest_block_height) =>
+            {
                 // Allow a delay to acquire more finality signatures
                 let effects = effect_builder
                     .set_timeout(DELAY_BEFORE_SHUTDOWN)
@@ -63,8 +69,8 @@ impl MainReactor {
                 // should not need to crank the control logic again as the reactor will shutdown
                 UpgradeShutdownInstruction::Do(DELAY_BEFORE_SHUTDOWN, effects)
             }
-            Ok(false) => UpgradeShutdownInstruction::CheckLater(
-                "waiting for sufficient finality".to_string(),
+            Ok(_) => UpgradeShutdownInstruction::CheckLater(
+                "waiting for sufficient finality and completion of all blocks".to_string(),
                 DELAY_BEFORE_SHUTDOWN,
             ),
             Err(error) => UpgradeShutdownInstruction::Fatal(format!(
