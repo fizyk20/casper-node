@@ -90,15 +90,20 @@ function await_n_eras()
 #   Future block height offset to apply.
 #   Whether to log progress or not.
 #   Node ordinal identifier.
+#   Sleep interval.
+#   Timeout for function.
 #######################################
 function await_n_blocks()
 {
     local OFFSET=${1}
     local EMIT_LOG=${2:-false}
     local NODE_ID=${3:-''}
+    local SLEEP_INTERVAL=${4:-'2.0'}
+    local TIME_OUT=${5:-''}
 
     local CURRENT
     local FUTURE
+    local LOG_OUTPUT
 
     # 60 second retry period to allow for network upgrades.
     CURRENT=$(get_chain_height "$NODE_ID" 60)
@@ -110,10 +115,28 @@ function await_n_blocks()
 
     while [ "$CURRENT" -lt "$FUTURE" ];
     do
-        if [ "$EMIT_LOG" = true ]; then
-            log "current block height = $CURRENT :: future height = $FUTURE ... sleeping 2 seconds"
+        LOG_OUTPUT="current block height = $CURRENT :: future height = $FUTURE ... sleeping $SLEEP_INTERVAL seconds"
+
+        if [ "$EMIT_LOG" = true ] && [ ! -z "$TIME_OUT" ]; then
+            log "$LOG_OUTPUT :: timeout = $TIME_OUT seconds"
+        elif [ "$EMIT_LOG" = true ]; then
+            log "$LOG_OUTPUT"
         fi
-        sleep 2.0
+
+        sleep "$SLEEP_INTERVAL"
+
+        if [ ! -z "$TIME_OUT" ]; then
+            # Using jq since its required by NCTL anyway to do this floating point arith
+            # ... done to maintain backwards compatibility
+            TIME_OUT=$(jq -n "$TIME_OUT-$SLEEP_INTERVAL")
+
+            if [ "$TIME_OUT" -le "0" ]; then
+                log "ERROR: Timed out before reaching future era = $FUTURE"
+                # https://stackoverflow.com/a/54344104
+                return 1 2>/dev/null
+            fi
+        fi
+
         CURRENT=$(get_chain_height "$NODE_ID" 60)
         if [ "$CURRENT" == "N/A" ]; then
             log "unable to get current block height using node $NODE_ID"
