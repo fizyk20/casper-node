@@ -30,6 +30,7 @@ unset GENESIS_DELAY_SECONDS
 unset NET_ID
 unset NODE_COUNT
 unset PATH_TO_CHAINSPEC
+unset CONSENSUS
 
 for ARGUMENT in "$@"
 do
@@ -42,6 +43,7 @@ do
         chainspec_path) PATH_TO_CHAINSPEC=${VALUE} ;;
         accounts_path) PATH_TO_ACCOUNTS=${VALUE} ;;
         config_path) PATH_TO_CONFIG_TOML=${VALUE} ;;
+        consensus) CONSENSUS=${VALUE} ;;
         *)
     esac
 done
@@ -52,6 +54,7 @@ NODE_COUNT=${NODE_COUNT:-5}
 PATH_TO_CHAINSPEC=${PATH_TO_CHAINSPEC:-"${NCTL_CASPER_HOME}/resources/local/chainspec.toml.in"}
 PATH_TO_ACCOUNTS=${PATH_TO_ACCOUNTS:-""}
 PATH_TO_CONFIG_TOML=${PATH_TO_CONFIG_TOML:-"${NCTL_CASPER_HOME}/resources/local/config.toml"}
+CONSENSUS=${CONSENSUS:-"Highway"}
 
 
 #######################################
@@ -120,6 +123,7 @@ function _main()
     local GENESIS_DELAY=${2}
     local PATH_TO_CHAINSPEC=${3}
     local PATH_TO_ACCOUNTS=${4}
+    local CONSENSUS=${5}
     local COUNT_USERS="$COUNT_NODES"
     local PATH_TO_NET
 
@@ -160,7 +164,8 @@ function _main()
                           "1.0.0" \
                           $(get_genesis_timestamp "$GENESIS_DELAY") \
                           "$PATH_TO_CHAINSPEC" \
-                          true
+                          true \
+                          "$CONSENSUS"
 
     if [ "$PATH_TO_ACCOUNTS" = "" ]; then
         setup_asset_accounts "$COUNT_NODES" "$COUNT_NODES_AT_GENESIS" "$COUNT_USERS"
@@ -176,4 +181,4 @@ function _main()
     log "asset setup complete"
 }
 
-_main "$NODE_COUNT" "$GENESIS_DELAY_SECONDS" "$PATH_TO_CHAINSPEC" "$PATH_TO_ACCOUNTS"
+_main "$NODE_COUNT" "$GENESIS_DELAY_SECONDS" "$PATH_TO_CHAINSPEC" "$PATH_TO_ACCOUNTS" "$CONSENSUS"

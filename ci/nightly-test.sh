@@ -18,6 +18,7 @@ bash -i "$DRONE_ROOT_DIR/ci/nctl_compile.sh"
 
 function start_run_teardown() {
     local RUN_CMD=$1
+    local CONSENSUS=${2:-"Highway"}
     local TEST_NAME
     local STAGE_TOML_DIR
     local SETUP_ARGS
@@ -49,6 +50,8 @@ function start_run_teardown() {
     if [ -f "$CONFIG_TOML" ]; then
         SETUP_ARGS+=("config_path=$CONFIG_TOML")
     fi
+
+    SETUP_ARGS+=("consensus=$CONSENSUS")
 
     # Setup nctl files for test
     echo "Setting up network: nctl-assets-setup ${SETUP_ARGS[@]}"

@@ -35,6 +35,7 @@ function _main()
     local GENESIS_DELAY=${3}
     local PATH_TO_ACCOUNTS=${4}
     local PATH_TO_CHAINSPEC=${5}
+    local CONSENSUS=${6}
     local COUNT_USERS="$COUNT_NODES"
     local PATH_TO_NET
     local PATH_TO_STAGE
@@ -74,7 +75,8 @@ function _main()
                           "$PROTOCOL_VERSION" \
                           $(get_genesis_timestamp "$GENESIS_DELAY") \
                           "$PATH_TO_STAGED_ASSETS/chainspec.toml" \
-                          true
+                          true \
+                          "$CONSENSUS"
 
     if [ "$PATH_TO_ACCOUNTS" = "" ]; then
         setup_asset_accounts "$COUNT_NODES" \
@@ -118,6 +120,7 @@ unset NET_ID
 unset NODE_COUNT
 unset STAGE_ID
 unset PATH_TO_CHAINSPEC
+unset CONSENSUS
 
 for ARGUMENT in "$@"
 do
@@ -130,6 +133,7 @@ do
         nodes) NODE_COUNT=${VALUE} ;;
         stage) STAGE_ID=${VALUE} ;;
         chainspec_path) PATH_TO_CHAINSPEC=${VALUE} ;;
+        consensus) CONSENSUS=${VALUE} ;;
         *)
     esac
 done
@@ -140,9 +144,11 @@ NODE_COUNT=${NODE_COUNT:-5}
 PATH_TO_ACCOUNTS=${PATH_TO_ACCOUNTS:-""}
 STAGE_ID="${STAGE_ID:-1}"
 PATH_TO_CHAINSPEC=${PATH_TO_CHAINSPEC:-""}
+CONSENSUS=${CONSENSUS:-"Highway"}
 
 _main "$STAGE_ID" \
       "$NODE_COUNT" \
       "$GENESIS_DELAY_SECONDS" \
       "$PATH_TO_ACCOUNTS" \
-      "$PATH_TO_CHAINSPEC"
+      "$PATH_TO_CHAINSPEC" \
+      "$CONSENSUS"

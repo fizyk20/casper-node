@@ -233,6 +233,7 @@ function setup_asset_chainspec()
     local ACTIVATION_POINT=${3}
     local PATH_TO_CHAINSPEC_TEMPLATE=${4}
     local IS_GENESIS=${5}
+    local CONSENSUS=${6:-"Highway"}
     local PATH_TO_CHAINSPEC
     local SCRIPT
 
@@ -263,6 +264,8 @@ function setup_asset_chainspec()
        [[ "$PATH_TO_CHAINSPEC_TEMPLATE" == *"stages"* ]]; then
         SCRIPT+=("cfg['core']['validator_slots']=$COUNT_NODES;")
     fi
+
+    SCRIPT+=("cfg['core']['consensus_protocol']='$CONSENSUS';")
 
     SCRIPT+=("toml.dump(cfg, open('$PATH_TO_CHAINSPEC', 'w'));")
 
