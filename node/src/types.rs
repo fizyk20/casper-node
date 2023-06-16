@@ -33,7 +33,8 @@ pub use block::{
     json_compatibility::{JsonBlock, JsonBlockHeader},
     Block, BlockAndDeploys, BlockBody, BlockExecutionResultsOrChunk,
     BlockExecutionResultsOrChunkId, BlockExecutionResultsOrChunkIdDisplay, BlockHash, BlockHeader,
-    BlockSignatures, FinalitySignature, FinalizedBlock, PastFinalitySignatures,
+    BlockSignatures, FinalitySignature, FinalizedBlock, RewardedSignatures,
+    SingleBlockRewardedSignatures,
 };
 pub use chainspec::Chainspec;
 pub(crate) use chainspec::{ActivationPoint, ChainspecRawBytes};

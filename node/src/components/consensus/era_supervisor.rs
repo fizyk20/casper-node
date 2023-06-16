@@ -57,7 +57,7 @@ use crate::{
     types::{
         chainspec::ConsensusProtocolName, BlockHash, BlockHeader, Chainspec, Deploy, DeployHash,
         DeployOrTransferHash, FinalizedApprovals, FinalizedBlock, MetaBlockState, NodeId,
-        PastFinalitySignatures, ValidatorMatrix,
+        RewardedSignatures, SingleBlockRewardedSignatures, ValidatorMatrix,
     },
     NodeRng,
 };
@@ -990,31 +990,52 @@ impl EraSupervisor {
 
                 let validator_matrix = self.validator_matrix.clone();
 
-                async move { tokio::join!(awaitable_appendable_block, awaitable_blocks_with_metadata) }
-                    .event(move |(appendable_block, maybe_past_blocks_with_metadata)| {
-                        let past_finality_signatures = maybe_past_blocks_with_metadata
+                async move {
+                    tokio::join!(awaitable_appendable_block, awaitable_blocks_with_metadata)
+                }
+                .event(move |(appendable_block, maybe_past_blocks_with_metadata)| {
+                    let mut rewarded_signatures =
+                        RewardedSignatures::new(maybe_past_blocks_with_metadata
                             .into_iter()
                             .rev()
                             .map(|maybe_past_block_with_metadata| {
                                 maybe_past_block_with_metadata.and_then(|past_block_with_metadata|
                                     validator_matrix
-                                        .validator_weights(past_block_with_metadata.block.header().era_id())
-                                        .map(|weights| PastFinalitySignatures::from_validator_set(
-                                            &past_block_with_metadata
-                                                .block_signatures
-                                                .proofs
-                                                .keys()
-                                                .cloned()
-                                                .collect(),
-                                            weights.validator_public_keys(),
+                                        .validator_weights(past_block_with_metadata.block
+                                            .header()
+                                            .era_id())
+                                        .map(|weights|
+                                            SingleBlockRewardedSignatures::from_validator_set(
+                                                &past_block_with_metadata
+                                                    .block_signatures
+                                                    .proofs
+                                                    .keys()
+                                                    .cloned()
+                                                    .collect(),
+                                                weights.validator_public_keys(),
                                         )))
                                         .unwrap_or_default()
-                            })
-                            .collect();
+                            }));
+
+                        // Exclude signatures included in past blocks.
+                        // It's enough to look at `signature_rewards_max_delay` blocks at most.
+                        // TODO: this will only exclude the signatures included in this era. We
+                        // need to chain values from the previous era if necessary.
+                        for (past_index, ancestor_value) in block_context
+                            .ancestor_values()
+                            .iter()
+                            .enumerate()
+                            .take(signature_rewards_max_delay as usize)
+                        {
+                            rewarded_signatures = rewarded_signatures.difference(&ancestor_value
+                                .rewarded_signatures()
+                                .clone()
+                                .left_padded(past_index + 1));
+                        }
 
                         let block_payload = Arc::new(appendable_block.into_block_payload(
                             accusations,
-                            past_finality_signatures,
+                            rewarded_signatures,
                             random_bit,
                         ));
 
