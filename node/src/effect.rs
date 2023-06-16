@@ -1594,6 +1594,17 @@ impl<REv> EffectBuilder<REv> {
         .await
     }
 
+    pub(crate) async fn collect_past_blocks_with_metadata(
+        self,
+        range: std::ops::Range<u64>,
+        only_from_available_block_range: bool,
+    ) -> Vec<Option<BlockWithMetadata>>
+    where
+        REv: From<StorageRequest>,
+    {
+        todo!()
+    }
+
     /// Gets the requested finality signature from storage.
     pub(crate) async fn get_finality_signature_from_storage(
         self,

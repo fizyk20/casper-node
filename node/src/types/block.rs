@@ -114,8 +114,10 @@ static FINALIZED_BLOCK: Lazy<FinalizedBlock> = Lazy::new(|| {
     let public_key = PublicKey::from(secret_key);
     let era_report = EraReport::doc_example().clone();
     let validator_set = era_report.rewards.keys().cloned().collect();
-    let past_finality_signatures =
-        PastFinalitySignatures::from_validator_set(&validator_set, &validator_set);
+    let past_finality_signatures = vec![PastFinalitySignatures::from_validator_set(
+        &validator_set,
+        &validator_set,
+    )];
     let block_payload = BlockPayload::new(
         vec![],
         transfer_hashes
@@ -236,7 +238,7 @@ impl From<TryFromSliceError> for Error {
 pub(crate) struct BlockPayload {
     deploys: Vec<DeployHashWithApprovals>,
     transfers: Vec<DeployHashWithApprovals>,
-    past_finality_signatures: PastFinalitySignatures,
+    past_finality_signatures: Vec<PastFinalitySignatures>,
     accusations: Vec<PublicKey>,
     random_bit: bool,
 }
@@ -246,7 +248,7 @@ impl BlockPayload {
         deploys: Vec<DeployHashWithApprovals>,
         transfers: Vec<DeployHashWithApprovals>,
         accusations: Vec<PublicKey>,
-        past_finality_signatures: PastFinalitySignatures,
+        past_finality_signatures: Vec<PastFinalitySignatures>,
         random_bit: bool,
     ) -> Self {
         BlockPayload {
@@ -289,7 +291,7 @@ impl BlockPayload {
     }
 
     /// The finality signature for the past block defined by the lag from the chainspec.
-    pub(crate) fn past_finality_signatures(&self) -> &PastFinalitySignatures {
+    pub(crate) fn past_finality_signatures(&self) -> &Vec<PastFinalitySignatures> {
         &self.past_finality_signatures
     }
 
@@ -377,7 +379,7 @@ impl BlockPayload {
         let accusations = (0..num_accusations)
             .map(|_| PublicKey::random(rng))
             .collect();
-        let past_finality_signatures = PastFinalitySignatures::random(rng, 20);
+        let past_finality_signatures = vec![PastFinalitySignatures::random(rng, 20)];
 
         Self {
             deploys,
@@ -447,7 +449,7 @@ impl DocExample for EraReport {
 pub struct FinalizedBlock {
     deploy_hashes: Vec<DeployHash>,
     transfer_hashes: Vec<DeployHash>,
-    past_finality_signatures: PastFinalitySignatures,
+    past_finality_signatures: Vec<PastFinalitySignatures>,
     timestamp: Timestamp,
     random_bit: bool,
     era_report: Option<Box<EraReport>>,
@@ -564,7 +566,7 @@ impl FinalizedBlock {
             deploys,
             vec![],
             vec![],
-            PastFinalitySignatures::random(rng, 20),
+            vec![PastFinalitySignatures::random(rng, 20)],
             random_bit,
         );
 
@@ -1200,7 +1202,7 @@ pub struct BlockBody {
     proposer: PublicKey,
     deploy_hashes: Vec<DeployHash>,
     transfer_hashes: Vec<DeployHash>,
-    past_finality_signatures: PastFinalitySignatures,
+    past_finality_signatures: Vec<PastFinalitySignatures>,
     #[serde(skip)]
     #[data_size(with = ds::once_cell)]
     hash: OnceCell<Digest>,
@@ -1215,7 +1217,7 @@ impl BlockBody {
         proposer: PublicKey,
         deploy_hashes: Vec<DeployHash>,
         transfer_hashes: Vec<DeployHash>,
-        past_finality_signatures: PastFinalitySignatures,
+        past_finality_signatures: Vec<PastFinalitySignatures>,
     ) -> Self {
         BlockBody {
             proposer,
@@ -1242,7 +1244,7 @@ impl BlockBody {
     }
 
     /// List of identifiers for finality signatures for a particular past block.
-    pub(crate) fn past_finality_signatures(&self) -> &PastFinalitySignatures {
+    pub(crate) fn past_finality_signatures(&self) -> &[PastFinalitySignatures] {
         &self.past_finality_signatures
     }
 
@@ -1317,7 +1319,7 @@ impl FromBytes for BlockBody {
         let (proposer, bytes) = PublicKey::from_bytes(bytes)?;
         let (deploy_hashes, bytes) = Vec::<DeployHash>::from_bytes(bytes)?;
         let (transfer_hashes, bytes) = Vec::<DeployHash>::from_bytes(bytes)?;
-        let (past_finality_signatures, bytes) = PastFinalitySignatures::from_bytes(bytes)?;
+        let (past_finality_signatures, bytes) = Vec::<PastFinalitySignatures>::from_bytes(bytes)?;
         let body = BlockBody {
             proposer,
             deploy_hashes,
@@ -2234,7 +2236,7 @@ pub(crate) mod json_compatibility {
         transfer_hashes: Vec<DeployHash>,
         /// A series of 1s and 0s defining whether the validator at the same index
         /// has signed or not.
-        past_finality_signatures: Vec<u8>,
+        past_finality_signatures: Vec<Vec<u8>>,
     }
 
     impl From<&BlockBody> for JsonBlockBody {
@@ -2243,7 +2245,11 @@ pub(crate) mod json_compatibility {
                 proposer: body.proposer().clone(),
                 deploy_hashes: body.deploy_hashes().clone(),
                 transfer_hashes: body.transfer_hashes().clone(),
-                past_finality_signatures: body.past_finality_signatures().unpack().collect(),
+                past_finality_signatures: body
+                    .past_finality_signatures()
+                    .iter()
+                    .map(|past_finality_signatures| past_finality_signatures.unpack().collect())
+                    .collect(),
             }
         }
     }
@@ -2254,9 +2260,13 @@ pub(crate) mod json_compatibility {
                 proposer: json_body.proposer,
                 deploy_hashes: json_body.deploy_hashes,
                 transfer_hashes: json_body.transfer_hashes,
-                past_finality_signatures: PastFinalitySignatures::pack(
-                    json_body.past_finality_signatures.into_iter(),
-                ),
+                past_finality_signatures: json_body
+                    .past_finality_signatures
+                    .into_iter()
+                    .map(|past_finality_signatures| {
+                        PastFinalitySignatures::pack(past_finality_signatures.into_iter())
+                    })
+                    .collect(),
                 hash: OnceCell::new(),
             }
         }

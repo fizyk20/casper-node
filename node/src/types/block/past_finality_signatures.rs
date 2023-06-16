@@ -13,10 +13,10 @@ use tracing::error;
 
 /// List of identifiers for finality signatures for a particular past block.
 ///
-/// That past block height is current_height - rewards_lag, the latter being defined
+/// That past block height is current_height - signature_rewards_max_delay, the latter being defined
 /// in the chainspec.
 ///
-/// We need to wait for a few blocks to pass (`rewards_lag`) to store the finality
+/// We need to wait for a few blocks to pass (`signature_rewards_max_delay`) to store the finality
 /// signers because we need a bit of time to get the block finality.
 #[derive(
     Clone,

@@ -961,21 +961,23 @@ impl EraSupervisor {
                 .immediately()
                 .event(move |()| Event::Action { era_id, action_id }),
             ProtocolOutcome::CreateNewBlock(block_context) => {
+                let signature_rewards_max_delay =
+                    self.chainspec.core_config.signature_rewards_max_delay;
                 let initial_era_height = self.era(era_id).start_height;
                 let current_block_height =
                     initial_era_height + block_context.ancestor_values().len() as u64;
+                let minimum_block_height =
+                    current_block_height.saturating_sub(signature_rewards_max_delay);
 
-                let future_appendable_block =
+                let awaitable_appendable_block =
                     effect_builder.request_appendable_block(block_context.timestamp());
-                let rewards_lag = self.chainspec.core_config.rewards_lag;
-                let future_block_with_metadata = async move {
-                    if let Some(block_height) = current_block_height.checked_sub(rewards_lag) {
-                        effect_builder
-                            .get_block_at_height_with_metadata_from_storage(block_height, false)
-                            .await
-                    } else {
-                        None
-                    }
+                let awaitable_blocks_with_metadata = async move {
+                    effect_builder
+                        .collect_past_blocks_with_metadata(
+                            minimum_block_height..current_block_height,
+                            false,
+                        )
+                        .await
                 };
                 let accusations = self
                     .iter_past(era_id, PAST_EVIDENCE_ERAS)
@@ -988,16 +990,16 @@ impl EraSupervisor {
 
                 let validator_matrix = self.validator_matrix.clone();
 
-                async move { tokio::join!(future_appendable_block, future_block_with_metadata) }
-                    .event(move |(appendable_block, maybe_past_block_with_metadata)| {
-                        let past_finality_signatures = maybe_past_block_with_metadata
-                            .and_then(|past_block_with_metadata| {
-                                validator_matrix
-                                    .validator_weights(
-                                        past_block_with_metadata.block.header().era_id(),
-                                    )
-                                    .map(|weights| {
-                                        PastFinalitySignatures::from_validator_set(
+                async move { tokio::join!(awaitable_appendable_block, awaitable_blocks_with_metadata) }
+                    .event(move |(appendable_block, maybe_past_blocks_with_metadata)| {
+                        let past_finality_signatures = maybe_past_blocks_with_metadata
+                            .into_iter()
+                            .rev()
+                            .map(|maybe_past_block_with_metadata| {
+                                maybe_past_block_with_metadata.and_then(|past_block_with_metadata|
+                                    validator_matrix
+                                        .validator_weights(past_block_with_metadata.block.header().era_id())
+                                        .map(|weights| PastFinalitySignatures::from_validator_set(
                                             &past_block_with_metadata
                                                 .block_signatures
                                                 .proofs
@@ -1005,10 +1007,10 @@ impl EraSupervisor {
                                                 .cloned()
                                                 .collect(),
                                             weights.validator_public_keys(),
-                                        )
-                                    })
+                                        )))
+                                        .unwrap_or_default()
                             })
-                            .unwrap_or_default();
+                            .collect();
 
                         let block_payload = Arc::new(appendable_block.into_block_payload(
                             accusations,

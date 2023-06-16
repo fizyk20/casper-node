@@ -619,7 +619,7 @@ impl LargestSpecimen for BlockPayload {
             deploys,
             transfers,
             vec_prop_specimen(estimator, "max_accusations_per_block", cache),
-            LargestSpecimen::largest_specimen(estimator, cache),
+            vec![LargestSpecimen::largest_specimen(estimator, cache); todo!()],
             LargestSpecimen::largest_specimen(estimator, cache),
         )
     }

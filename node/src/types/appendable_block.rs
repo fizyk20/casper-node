@@ -161,7 +161,7 @@ impl AppendableBlock {
     pub(crate) fn into_block_payload(
         self,
         accusations: Vec<PublicKey>,
-        past_finality_signatures: PastFinalitySignatures,
+        past_finality_signatures: Vec<PastFinalitySignatures>,
         random_bit: bool,
     ) -> BlockPayload {
         let AppendableBlock {
