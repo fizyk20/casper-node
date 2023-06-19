@@ -1602,7 +1602,15 @@ impl<REv> EffectBuilder<REv> {
     where
         REv: From<StorageRequest>,
     {
-        todo!()
+        futures::future::join_all(range.into_iter().map(|block_height| {
+            self.get_block_at_height_with_metadata_from_storage(
+                block_height,
+                only_from_available_block_range,
+            )
+        }))
+        .await
+        .into_iter()
+        .collect()
     }
 
     /// Gets the requested finality signature from storage.

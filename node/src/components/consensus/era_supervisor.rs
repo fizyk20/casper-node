@@ -996,41 +996,60 @@ impl EraSupervisor {
                 .event(move |(appendable_block, maybe_past_blocks_with_metadata)| {
                     let mut rewarded_signatures =
                         RewardedSignatures::new(maybe_past_blocks_with_metadata
-                            .into_iter()
+                            .iter()
                             .rev()
                             .map(|maybe_past_block_with_metadata| {
-                                maybe_past_block_with_metadata.and_then(|past_block_with_metadata|
-                                    validator_matrix
-                                        .validator_weights(past_block_with_metadata.block
-                                            .header()
-                                            .era_id())
-                                        .map(|weights|
-                                            SingleBlockRewardedSignatures::from_validator_set(
-                                                &past_block_with_metadata
-                                                    .block_signatures
-                                                    .proofs
-                                                    .keys()
-                                                    .cloned()
-                                                    .collect(),
-                                                weights.validator_public_keys(),
-                                        )))
-                                        .unwrap_or_default()
+                                maybe_past_block_with_metadata
+                                    .as_ref()
+                                    .and_then(|past_block_with_metadata|
+                                        validator_matrix
+                                            .validator_weights(past_block_with_metadata.block
+                                                .header()
+                                                .era_id())
+                                            .map(|weights|
+                                                SingleBlockRewardedSignatures::from_validator_set(
+                                                    &past_block_with_metadata
+                                                        .block_signatures
+                                                        .proofs
+                                                        .keys()
+                                                        .cloned()
+                                                        .collect(),
+                                                    weights.validator_public_keys(),
+                                            )))
+                                            .unwrap_or_default()
                             }));
 
-                        // Exclude signatures included in past blocks.
-                        // It's enough to look at `signature_rewards_max_delay` blocks at most.
-                        // TODO: this will only exclude the signatures included in this era. We
-                        // need to chain values from the previous era if necessary.
-                        for (past_index, ancestor_value) in block_context
+                        let num_ancestor_values = block_context.ancestor_values().len();
+                        for (past_index, ancestor_rewarded_signatures) in block_context
                             .ancestor_values()
                             .iter()
+                            .map(|value| value.rewarded_signatures().clone())
+                            // the above will only cover the signatures from the same era - chain
+                            // with signatures from the blocks read from storage
+                            .chain(maybe_past_blocks_with_metadata
+                                .iter()
+                                .rev()
+                                // skip the blocks corresponding to heights covered by
+                                // ancestor_values
+                                .skip(num_ancestor_values)
+                                .map(|maybe_past_block| maybe_past_block
+                                    .as_ref()
+                                    .map_or_else(
+                                        // TODO: if we're missing a block, this might cause us to
+                                        // include duplicate signatures and make our proposal
+                                        // invalid; we should protect against that somehow
+                                        Default::default,
+                                        |past_block| past_block.block
+                                            .body()
+                                            .rewarded_signatures()
+                                            .clone(),
+                            )))
                             .enumerate()
                             .take(signature_rewards_max_delay as usize)
                         {
-                            rewarded_signatures = rewarded_signatures.difference(&ancestor_value
-                                .rewarded_signatures()
-                                .clone()
-                                .left_padded(past_index + 1));
+                            rewarded_signatures = rewarded_signatures
+                                .difference(&ancestor_rewarded_signatures
+                                    .left_padded(past_index + 1));
                         }
 
                         let block_payload = Arc::new(appendable_block.into_block_payload(

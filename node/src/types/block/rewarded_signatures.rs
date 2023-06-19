@@ -202,7 +202,7 @@ impl RewardedSignatures {
     }
 
     /// Calculates the set difference between two instances of `RewardedSignatures`.
-    pub fn difference(mut self, other: &RewardedSignatures) -> Self {
+    pub fn difference(self, other: &RewardedSignatures) -> Self {
         Self(
             self.0
                 .into_iter()
