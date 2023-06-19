@@ -341,18 +341,6 @@ mod tests {
     }
 }
 
-impl crate::utils::specimen::LargestSpecimen for SingleBlockRewardedSignatures {
-    fn largest_specimen<E: crate::utils::specimen::SizeEstimator>(
-        estimator: &E,
-        _cache: &mut crate::utils::specimen::Cache,
-    ) -> Self {
-        SingleBlockRewardedSignatures(vec![
-            u8::MAX;
-            div_by_8_ceil(estimator.parameter("validator_count"))
-        ])
-    }
-}
-
 #[cfg(any(feature = "testing", test))]
 impl SingleBlockRewardedSignatures {
     pub(crate) fn random(rng: &mut casper_types::testing::TestRng, n_validators: usize) -> Self {
@@ -362,9 +350,4 @@ impl SingleBlockRewardedSignatures {
 
         SingleBlockRewardedSignatures(bytes)
     }
-}
-
-/// Divides by 8 but round to the higher integer.
-fn div_by_8_ceil(n: usize) -> usize {
-    (n + 7) / 8
 }
