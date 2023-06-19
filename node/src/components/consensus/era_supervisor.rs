@@ -23,7 +23,7 @@ use std::{
 
 use anyhow::Error;
 use datasize::DataSize;
-use futures::FutureExt;
+use futures::{Future, FutureExt};
 use itertools::Itertools;
 use prometheus::Registry;
 use rand::Rng;
@@ -55,9 +55,9 @@ use crate::{
     },
     fatal, protocol,
     types::{
-        chainspec::ConsensusProtocolName, BlockHash, BlockHeader, Chainspec, Deploy, DeployHash,
-        DeployOrTransferHash, FinalizedApprovals, FinalizedBlock, MetaBlockState, NodeId,
-        RewardedSignatures, SingleBlockRewardedSignatures, ValidatorMatrix,
+        chainspec::ConsensusProtocolName, BlockHash, BlockHeader, BlockWithMetadata, Chainspec,
+        Deploy, DeployHash, DeployOrTransferHash, FinalizedApprovals, FinalizedBlock,
+        MetaBlockState, NodeId, RewardedSignatures, SingleBlockRewardedSignatures, ValidatorMatrix,
     },
     NodeRng,
 };
@@ -65,7 +65,7 @@ use crate::{
 pub use self::era::Era;
 use crate::components::consensus::error::CreateNewEraError;
 
-use super::traits::ConsensusNetworkMessage;
+use super::{traits::ConsensusNetworkMessage, BlockContext};
 
 /// The delay in milliseconds before we shutdown after the number of faulty validators exceeded the
 /// fault tolerance threshold.
@@ -990,67 +990,14 @@ impl EraSupervisor {
 
                 let validator_matrix = self.validator_matrix.clone();
 
-                async move {
-                    tokio::join!(awaitable_appendable_block, awaitable_blocks_with_metadata)
-                }
-                .event(move |(appendable_block, maybe_past_blocks_with_metadata)| {
-                    let mut rewarded_signatures =
-                        RewardedSignatures::new(maybe_past_blocks_with_metadata
-                            .iter()
-                            .rev()
-                            .map(|maybe_past_block_with_metadata| {
-                                maybe_past_block_with_metadata
-                                    .as_ref()
-                                    .and_then(|past_block_with_metadata|
-                                        validator_matrix
-                                            .validator_weights(past_block_with_metadata.block
-                                                .header()
-                                                .era_id())
-                                            .map(|weights|
-                                                SingleBlockRewardedSignatures::from_validator_set(
-                                                    &past_block_with_metadata
-                                                        .block_signatures
-                                                        .proofs
-                                                        .keys()
-                                                        .cloned()
-                                                        .collect(),
-                                                    weights.validator_public_keys(),
-                                            )))
-                                            .unwrap_or_default()
-                            }));
-
-                        let num_ancestor_values = block_context.ancestor_values().len();
-                        for (past_index, ancestor_rewarded_signatures) in block_context
-                            .ancestor_values()
-                            .iter()
-                            .map(|value| value.rewarded_signatures().clone())
-                            // the above will only cover the signatures from the same era - chain
-                            // with signatures from the blocks read from storage
-                            .chain(maybe_past_blocks_with_metadata
-                                .iter()
-                                .rev()
-                                // skip the blocks corresponding to heights covered by
-                                // ancestor_values
-                                .skip(num_ancestor_values)
-                                .map(|maybe_past_block| maybe_past_block
-                                    .as_ref()
-                                    .map_or_else(
-                                        // TODO: if we're missing a block, this might cause us to
-                                        // include duplicate signatures and make our proposal
-                                        // invalid; we should protect against that somehow
-                                        Default::default,
-                                        |past_block| past_block.block
-                                            .body()
-                                            .rewarded_signatures()
-                                            .clone(),
-                            )))
-                            .enumerate()
-                            .take(signature_rewards_max_delay as usize)
-                        {
-                            rewarded_signatures = rewarded_signatures
-                                .difference(&ancestor_rewarded_signatures
-                                    .left_padded(past_index + 1));
-                        }
+                join_2(awaitable_appendable_block, awaitable_blocks_with_metadata).event(
+                    move |(appendable_block, maybe_past_blocks_with_metadata)| {
+                        let rewarded_signatures = create_rewarded_signatures(
+                            &maybe_past_blocks_with_metadata,
+                            validator_matrix,
+                            &block_context,
+                            signature_rewards_max_delay,
+                        );
 
                         let block_payload = Arc::new(appendable_block.into_block_payload(
                             accusations,
@@ -1063,7 +1010,8 @@ impl EraSupervisor {
                             block_payload,
                             block_context,
                         })
-                    })
+                    },
+                )
             }
             ProtocolOutcome::FinalizedBlock(CpFinalizedBlock {
                 value,
@@ -1441,4 +1389,77 @@ impl ProposedBlock<ClContext> {
             .find(|deploy| block_deploys_set.contains(deploy))
             .map(DeployOrTransferHash::into)
     }
+}
+
+/// When `async move { tokio::join!(…) }` is used inline, it prevents rustfmt
+/// to run on the chained `event` block.
+async fn join_2<T: Future, U: Future>(
+    t: T,
+    u: U,
+) -> (<T as Future>::Output, <U as Future>::Output) {
+    tokio::join!(t, u)
+}
+
+fn create_rewarded_signatures(
+    maybe_past_blocks_with_metadata: &[Option<BlockWithMetadata>],
+    validator_matrix: ValidatorMatrix,
+    block_context: &BlockContext<ClContext>,
+    signature_rewards_max_delay: u64,
+) -> RewardedSignatures {
+    let num_ancestor_values = block_context.ancestor_values().len();
+    let mut rewarded_signatures =
+        RewardedSignatures::new(maybe_past_blocks_with_metadata.iter().rev().map(
+            |maybe_past_block_with_metadata| {
+                maybe_past_block_with_metadata
+                    .as_ref()
+                    .and_then(|past_block_with_metadata| {
+                        validator_matrix
+                            .validator_weights(past_block_with_metadata.block.header().era_id())
+                            .map(|weights| {
+                                SingleBlockRewardedSignatures::from_validator_set(
+                                    &past_block_with_metadata
+                                        .block_signatures
+                                        .proofs
+                                        .keys()
+                                        .cloned()
+                                        .collect(),
+                                    weights.validator_public_keys(),
+                                )
+                            })
+                    })
+                    .unwrap_or_default()
+            },
+        ));
+
+    for (past_index, ancestor_rewarded_signatures) in block_context
+        .ancestor_values()
+        .iter()
+        .map(|value| value.rewarded_signatures().clone())
+        // the above will only cover the signatures from the same era - chain
+        // with signatures from the blocks read from storage
+        .chain(
+            maybe_past_blocks_with_metadata
+                .iter()
+                .rev()
+                // skip the blocks corresponding to heights covered by
+                // ancestor_values
+                .skip(num_ancestor_values)
+                .map(|maybe_past_block| {
+                    maybe_past_block.as_ref().map_or_else(
+                        // TODO: if we're missing a block, this might cause us to
+                        // include duplicate signatures and make our proposal
+                        // invalid; we should protect against that somehow
+                        Default::default,
+                        |past_block| past_block.block.body().rewarded_signatures().clone(),
+                    )
+                }),
+        )
+        .enumerate()
+        .take(signature_rewards_max_delay as usize)
+    {
+        rewarded_signatures = rewarded_signatures
+            .difference(&ancestor_rewarded_signatures.left_padded(past_index + 1));
+    }
+
+    rewarded_signatures
 }
