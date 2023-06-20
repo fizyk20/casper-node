@@ -58,6 +58,7 @@ pub(crate) use approvals_hashes::ApprovalsHashes;
 pub(crate) use meta_block::{
     MergeMismatchError as MetaBlockMergeError, MetaBlock, State as MetaBlockState,
 };
+pub(crate) use rewarded_signatures::create_single_block_rewarded_signatures;
 pub use rewarded_signatures::{RewardedSignatures, SingleBlockRewardedSignatures};
 
 static ERA_REPORT: Lazy<EraReport> = Lazy::new(|| {

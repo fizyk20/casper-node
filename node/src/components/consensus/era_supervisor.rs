@@ -55,9 +55,10 @@ use crate::{
     },
     fatal, protocol,
     types::{
-        chainspec::ConsensusProtocolName, BlockHash, BlockHeader, BlockWithMetadata, Chainspec,
-        Deploy, DeployHash, DeployOrTransferHash, FinalizedApprovals, FinalizedBlock,
-        MetaBlockState, NodeId, RewardedSignatures, SingleBlockRewardedSignatures, ValidatorMatrix,
+        chainspec::ConsensusProtocolName, create_single_block_rewarded_signatures, BlockHash,
+        BlockHeader, BlockWithMetadata, Chainspec, Deploy, DeployHash, DeployOrTransferHash,
+        FinalizedApprovals, FinalizedBlock, MetaBlockState, NodeId, RewardedSignatures,
+        ValidatorMatrix,
     },
     NodeRng,
 };
@@ -1415,19 +1416,10 @@ fn create_rewarded_signatures(
                 maybe_past_block_with_metadata
                     .as_ref()
                     .and_then(|past_block_with_metadata| {
-                        validator_matrix
-                            .validator_weights(past_block_with_metadata.block.header().era_id())
-                            .map(|weights| {
-                                SingleBlockRewardedSignatures::from_validator_set(
-                                    &past_block_with_metadata
-                                        .block_signatures
-                                        .proofs
-                                        .keys()
-                                        .cloned()
-                                        .collect(),
-                                    weights.validator_public_keys(),
-                                )
-                            })
+                        create_single_block_rewarded_signatures(
+                            &validator_matrix,
+                            past_block_with_metadata,
+                        )
                     })
                     .unwrap_or_default()
             },

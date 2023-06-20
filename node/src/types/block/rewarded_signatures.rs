@@ -11,6 +11,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
+use crate::types::ValidatorMatrix;
+
+use super::BlockWithMetadata;
+
 /// List of identifiers for finality signatures for a particular past block.
 ///
 /// That past block height is current_height - signature_rewards_max_delay, the latter being defined
@@ -350,4 +354,25 @@ impl SingleBlockRewardedSignatures {
 
         SingleBlockRewardedSignatures(bytes)
     }
+}
+
+/// Creates a new recorded finality signatures, from a validator matrix, and a block
+/// with metadata.
+pub(crate) fn create_single_block_rewarded_signatures(
+    validator_matrix: &ValidatorMatrix,
+    past_block_with_metadata: &BlockWithMetadata,
+) -> Option<SingleBlockRewardedSignatures> {
+    validator_matrix
+        .validator_weights(past_block_with_metadata.block.header().era_id())
+        .map(|weights| {
+            SingleBlockRewardedSignatures::from_validator_set(
+                &past_block_with_metadata
+                    .block_signatures
+                    .proofs
+                    .keys()
+                    .cloned()
+                    .collect(),
+                weights.validator_public_keys(),
+            )
+        })
 }
