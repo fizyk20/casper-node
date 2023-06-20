@@ -1423,6 +1423,7 @@ fn create_rewarded_signatures(
             },
         ));
 
+    // exclude the signatures that were already included in ancestor blocks
     for (past_index, ancestor_rewarded_signatures) in block_context
         .ancestor_values()
         .iter()
@@ -1438,9 +1439,10 @@ fn create_rewarded_signatures(
                 .skip(num_ancestor_values)
                 .map(|maybe_past_block| {
                     maybe_past_block.as_ref().map_or_else(
-                        // TODO: if we're missing a block, this might cause us to
-                        // include duplicate signatures and make our proposal
-                        // invalid; we should protect against that somehow
+                        // if we're missing a block, this could cause us to include duplicate
+                        // signatures and make our proposal invalid - but this is covered by the
+                        // requirement for a validator to have blocks spanning the max deploy TTL
+                        // in the past
                         Default::default,
                         |past_block| past_block.block.body().rewarded_signatures().clone(),
                     )
