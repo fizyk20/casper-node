@@ -344,7 +344,7 @@ mod tests {
 #[cfg(any(feature = "testing", test))]
 impl SingleBlockRewardedSignatures {
     pub(crate) fn random(rng: &mut casper_types::testing::TestRng, n_validators: usize) -> Self {
-        let mut bytes = vec![0; div_by_8_ceil(n_validators)];
+        let mut bytes = vec![0; (n_validators + 7) / 8];
 
         rand::RngCore::fill_bytes(rng, bytes.as_mut());
 

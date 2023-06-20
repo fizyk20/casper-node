@@ -1393,6 +1393,8 @@ impl ProposedBlock<ClContext> {
 
 /// When `async move { tokio::join!(…) }` is used inline, it prevents rustfmt
 /// to run on the chained `event` block.
+#[allow(clippy::integer_arithmetic)] // tokio::join! uses it internally - safe unless the number of
+                                     // joined futures exceeds u32::MAX
 async fn join_2<T: Future, U: Future>(
     t: T,
     u: U,
@@ -1458,7 +1460,7 @@ fn create_rewarded_signatures(
         .take(signature_rewards_max_delay as usize)
     {
         rewarded_signatures = rewarded_signatures
-            .difference(&ancestor_rewarded_signatures.left_padded(past_index + 1));
+            .difference(&ancestor_rewarded_signatures.left_padded(past_index.saturating_add(1)));
     }
 
     rewarded_signatures
