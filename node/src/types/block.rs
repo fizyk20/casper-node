@@ -400,12 +400,7 @@ pub type EraReport = consensus::EraReport<PublicKey>;
 impl Display for EraReport {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let slashings = DisplayIter::new(&self.equivocators);
-        let rewards = DisplayIter::new(
-            self.rewards
-                .iter()
-                .map(|(public_key, amount)| format!("{}: {}", public_key, amount)),
-        );
-        write!(f, "era end: slash {}, reward {}", slashings, rewards)
+        write!(f, "era end: slash {}", slashings)
     }
 }
 
@@ -413,27 +408,22 @@ impl ToBytes for EraReport {
     fn to_bytes(&self) -> Result<Vec<u8>, bytesrepr::Error> {
         let mut buffer = bytesrepr::allocate_buffer(self)?;
         buffer.extend(self.equivocators.to_bytes()?);
-        buffer.extend(self.rewards.to_bytes()?);
         buffer.extend(self.inactive_validators.to_bytes()?);
         Ok(buffer)
     }
 
     fn serialized_length(&self) -> usize {
-        self.equivocators.serialized_length()
-            + self.rewards.serialized_length()
-            + self.inactive_validators.serialized_length()
+        self.equivocators.serialized_length() + self.inactive_validators.serialized_length()
     }
 }
 
 impl FromBytes for EraReport {
     fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), bytesrepr::Error> {
         let (equivocators, remainder) = Vec::<PublicKey>::from_bytes(bytes)?;
-        let (rewards, remainder) = BTreeMap::<PublicKey, u64>::from_bytes(remainder)?;
         let (inactive_validators, remainder) = Vec::<PublicKey>::from_bytes(remainder)?;
 
         let era_report = EraReport {
             equivocators,
-            rewards,
             inactive_validators,
         };
         Ok((era_report, remainder))

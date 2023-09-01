@@ -4,6 +4,7 @@ mod config;
 mod error;
 mod metrics;
 mod operations;
+mod rewards;
 mod types;
 
 use std::{
@@ -26,12 +27,9 @@ use serde::Serialize;
 use thiserror::Error;
 use tracing::{debug, error, info, trace};
 
-use casper_execution_engine::{
-    core::engine_state::{
-        self, genesis::GenesisError, ChainspecRegistry, EngineConfig, EngineState, GenesisSuccess,
-        QueryRequest, SystemContractRegistry, UpgradeConfig, UpgradeSuccess,
-    },
-    shared::{system_config::SystemConfig, wasm_config::WasmConfig},
+use casper_execution_engine::core::engine_state::{
+    self, genesis::GenesisError, ChainspecRegistry, EngineConfig, EngineState, GenesisSuccess,
+    QueryRequest, SystemContractRegistry, UpgradeConfig, UpgradeSuccess,
 };
 use casper_hashing::Digest;
 use casper_storage::{
@@ -213,8 +211,7 @@ pub(crate) struct ContractRuntime {
     exec_queue: ExecQueue,
     /// Cached instance of a [`SystemContractRegistry`].
     system_contract_registry: Option<SystemContractRegistry>,
-    activation_point: ActivationPoint,
-    prune_batch_size: u64,
+    chainspec: Arc<Chainspec>,
 }
 
 impl Debug for ContractRuntime {
@@ -541,12 +538,13 @@ impl ContractRuntime {
                         let engine_state = Arc::clone(&self.engine_state);
                         let metrics = Arc::clone(&self.metrics);
                         let shared_pre_state = Arc::clone(&self.execution_pre_state);
-                        let activation_point = self.activation_point;
-                        let prune_batch_size = self.prune_batch_size;
+                        let activation_point = self.chainspec.protocol_config.activation_point;
+                        let prune_batch_size = self.chainspec.core_config.prune_batch_size;
                         effects.extend(
                             Self::execute_finalized_block_or_requeue(
                                 engine_state,
                                 metrics,
+                                self.chainspec.clone(),
                                 exec_queue,
                                 shared_pre_state,
                                 current_pre_state.clone(),
@@ -635,21 +633,11 @@ impl ContractRuntime {
 }
 
 impl ContractRuntime {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         protocol_version: ProtocolVersion,
         storage_dir: &Path,
         contract_runtime_config: &Config,
-        wasm_config: WasmConfig,
-        system_config: SystemConfig,
-        max_associated_keys: u32,
-        max_runtime_call_stack_height: u32,
-        minimum_delegation_amount: u64,
-        activation_point: ActivationPoint,
-        prune_batch_size: u64,
-        strict_argument_checking: bool,
-        vesting_schedule_period_millis: u64,
-        max_delegators_per_validator: Option<u32>,
+        chainspec: Arc<Chainspec>,
         registry: &Registry,
     ) -> Result<Self, ConfigError> {
         // TODO: This is bogus, get rid of this
@@ -686,14 +674,15 @@ impl ContractRuntime {
 
         let engine_config = EngineConfig::new(
             contract_runtime_config.max_query_depth_or_default(),
-            max_associated_keys,
-            max_runtime_call_stack_height,
-            minimum_delegation_amount,
-            strict_argument_checking,
-            vesting_schedule_period_millis,
-            max_delegators_per_validator,
-            wasm_config,
-            system_config,
+            chainspec.core_config.max_associated_keys,
+            chainspec.core_config.max_runtime_call_stack_height,
+            chainspec.core_config.minimum_delegation_amount,
+            chainspec.core_config.strict_argument_checking,
+            chainspec.core_config.vesting_schedule_period.millis(),
+            (chainspec.core_config.max_delegators_per_validator != 0)
+                .then_some(chainspec.core_config.max_delegators_per_validator),
+            chainspec.wasm_config,
+            chainspec.system_costs_config,
         );
 
         let engine_state = EngineState::new(data_access_layer, engine_config);
@@ -710,8 +699,7 @@ impl ContractRuntime {
             protocol_version,
             exec_queue: Arc::new(Mutex::new(BTreeMap::new())),
             system_contract_registry: None,
-            activation_point,
-            prune_batch_size,
+            chainspec,
         })
     }
 
@@ -791,6 +779,7 @@ impl ContractRuntime {
     async fn execute_finalized_block_or_requeue<REv>(
         engine_state: Arc<EngineState<DataAccessLayer<LmdbGlobalState>>>,
         metrics: Arc<Metrics>,
+        chainspec: Arc<Chainspec>,
         exec_queue: ExecQueue,
         shared_pre_state: Arc<Mutex<ExecutionPreState>>,
         current_pre_state: ExecutionPreState,
@@ -812,6 +801,21 @@ impl ContractRuntime {
     {
         debug!("ContractRuntime: execute_finalized_block_or_requeue");
         let contract_runtime_metrics = metrics.clone();
+
+        let maybe_rewards = if finalized_block.era_report().is_some() {
+            Some(
+                rewards::rewards_for_era(
+                    effect_builder,
+                    finalized_block.era_id(),
+                    finalized_block.height(),
+                    chainspec,
+                )
+                .await,
+            )
+        } else {
+            None
+        };
+
         let BlockAndExecutionResults {
             block,
             approvals_hashes,

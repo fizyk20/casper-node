@@ -1,16 +1,25 @@
-use crate::{
-    components::consensus::ReactorEventT,
-    contract_runtime::EraValidatorsRequest,
-    effect::{requests::StorageRequest, EffectBuilder},
-    types::{Block, BlockHash, Chainspec},
-};
-use casper_execution_engine::core::engine_state::{self, GetEraValidatorsError};
-use casper_hashing::Digest;
-use casper_types::{EraId, ProtocolVersion, PublicKey, U512};
+use std::{collections::BTreeMap, ops::Range, sync::Arc};
+
 use futures::stream::{self, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools as _;
 use num_rational::Ratio;
-use std::{collections::BTreeMap, ops::Range, sync::Arc};
+
+use casper_execution_engine::core::engine_state::{self, GetEraValidatorsError};
+use casper_hashing::Digest;
+use casper_types::{EraId, ProtocolVersion, PublicKey, U512};
+
+use crate::{
+    contract_runtime::EraValidatorsRequest,
+    effect::{
+        requests::{ContractRuntimeRequest, StorageRequest},
+        EffectBuilder,
+    },
+    types::{Block, BlockHash, Chainspec},
+};
+
+trait ReactorEventT: Send + From<StorageRequest> + From<ContractRuntimeRequest> {}
+
+impl<T> ReactorEventT for T where T: Send + From<StorageRequest> + From<ContractRuntimeRequest> {}
 
 struct ErasInfo(BTreeMap<EraId, EraInfo>);
 
@@ -30,6 +39,8 @@ pub enum RewardsError {
     EraIdNotInEraRange(EraId),
     /// The validator public key is not in the era it should be in (should not happen).
     ValidatorKeyNotInEra(PublicKey),
+    /// We didn't have a required switch block.
+    MissingSwitchBlock(EraId),
 }
 
 /// We could not fetch the asked information for the given eras.
@@ -142,8 +153,7 @@ impl ErasInfo {
 pub(crate) async fn rewards_for_era<REv: ReactorEventT>(
     effect_builder: EffectBuilder<REv>,
     era_id: EraId,
-    start_of_era_height: u64,
-    relative_height: u64,
+    switch_block_height: u64,
     chainspec: Arc<Chainspec>,
 ) -> Result<BTreeMap<PublicKey, U512>, RewardsError> {
     fn increase_value_for_key(
@@ -164,13 +174,22 @@ pub(crate) async fn rewards_for_era<REv: ReactorEventT>(
     //
     // They are sorted from the oldest to the newest:
     let cited_blocks = {
+        let start_of_era_height = if era_id.is_genesis() {
+            0
+        } else {
+            let previous_era_id = era_id.saturating_sub(1);
+            let previous_era_switch_block_header = effect_builder
+                .get_switch_block_header_by_era_id_from_storage(previous_era_id)
+                .await
+                .ok_or(RewardsError::MissingSwitchBlock(previous_era_id))?;
+            previous_era_switch_block_header.height().saturating_add(1)
+        };
         let cited_block_height_start = start_of_era_height
             .saturating_sub(chainspec.core_config.signature_rewards_max_delay + 1);
-        let cited_block_height_end = start_of_era_height + relative_height;
 
         collect_past_blocks_batched(
             effect_builder,
-            cited_block_height_start..cited_block_height_end,
+            cited_block_height_start..switch_block_height,
         )
         .await
     };

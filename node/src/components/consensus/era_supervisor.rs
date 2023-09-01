@@ -9,7 +9,6 @@
 
 pub(super) mod debug;
 mod era;
-mod rewards;
 
 use std::{
     cmp,
@@ -57,10 +56,10 @@ use crate::{
     },
     fatal, protocol,
     types::{
-        chainspec::ConsensusProtocolName, create_single_block_rewarded_signatures, 
-        BlockHash, BlockHeader, BlockWithMetadata, Chainspec, Deploy, DeployHash,
-        DeployOrTransferHash, FinalizedApprovals, FinalizedBlock, MetaBlockState, NodeId,
-        RewardedSignatures, ValidatorMatrix,
+        chainspec::ConsensusProtocolName, create_single_block_rewarded_signatures, BlockHash,
+        BlockHeader, BlockWithMetadata, Chainspec, Deploy, DeployHash, DeployOrTransferHash,
+        FinalizedApprovals, FinalizedBlock, MetaBlockState, NodeId, RewardedSignatures,
+        ValidatorMatrix,
     },
     NodeRng,
 };
@@ -1033,27 +1032,11 @@ impl EraSupervisor {
 
                 let proposed_block = Arc::try_unwrap(value).unwrap_or_else(|arc| (*arc).clone());
 
-                let maybe_awaitable_rewards = {
-                    let chainspec = self.chainspec.clone();
-                    let start_of_era_height = era.start_height;
-
-                    terminal_block_data.as_ref().map(|_| async move {
-                        rewards::rewards_for_era(
-                            effect_builder,
-                            era_id,
-                            start_of_era_height,
-                            relative_height,
-                            chainspec,
-                        )
-                    })
-                };
-
                 // If this is the era's last block, it contains rewards. Everyone who is accused in
                 // the block or seen as equivocating via the consensus protocol gets faulty.
-                let report = terminal_block_data.map(|tbd| EraReport {
+                let report = terminal_block_data.map(|tbd| PartialEraReport {
                     equivocators: era.accusations(),
                     inactive_validators: tbd.inactive_validators,
-                    rewards: todo!(), // tbd.rewards,
                 });
                 let finalized_approvals: HashMap<_, _> = proposed_block
                     .deploys()

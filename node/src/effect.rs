@@ -1199,6 +1199,20 @@ impl<REv> EffectBuilder<REv> {
         .await
     }
 
+    pub(crate) async fn get_switch_block_header_by_era_id_from_storage(
+        self,
+        era_id: EraId,
+    ) -> Option<BlockHeader>
+    where
+        REv: From<StorageRequest>,
+    {
+        self.make_request(
+            |responder| StorageRequest::GetSwitchBlockHeaderByEra { era_id, responder },
+            QueueKind::FromStorage,
+        )
+        .await
+    }
+
     /// Gets the requested signature for a given block hash.
     pub(crate) async fn get_signature_from_storage(
         self,
