@@ -1501,6 +1501,11 @@ impl Block {
         &self.hash
     }
 
+    /// Era ID in which this block was created.
+    pub fn era_id(&self) -> EraId {
+        self.header.era_id()
+    }
+
     pub(crate) fn state_root_hash(&self) -> &Digest {
         self.header.state_root_hash()
     }
@@ -1520,9 +1525,19 @@ impl Block {
         self.body.deploy_and_transfer_hashes()
     }
 
+    /// List of identifiers for finality signatures for a particular past block.
+    pub fn rewarded_signatures(&self) -> &RewardedSignatures {
+        self.body.rewarded_signatures()
+    }
+
     /// The height of a block.
     pub fn height(&self) -> u64 {
         self.header.height()
+    }
+
+    /// The block's proposer, *i.e.* the validator producing it.
+    pub fn proposer(&self) -> &PublicKey {
+        self.body().proposer()
     }
 
     /// The protocol version of the block.

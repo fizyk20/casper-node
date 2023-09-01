@@ -2023,7 +2023,6 @@ impl<REv> EffectBuilder<REv> {
     /// Returns the total supply from the given `root_hash`.
     ///
     /// This operation is read only.
-    #[allow(unused)] //TODO remove in the next ticket implementation.
     pub(crate) async fn get_total_supply(
         self,
         state_hash: Digest,
@@ -2045,7 +2044,6 @@ impl<REv> EffectBuilder<REv> {
     /// Returns the seigniorage rate from the given `root_hash`.
     ///
     /// This operation is read only.
-    #[allow(unused)] //TODO remove in the next ticket implementation.
     pub(crate) async fn get_round_seigniorage_rate(
         self,
         state_hash: Digest,
