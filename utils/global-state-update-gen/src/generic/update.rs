@@ -127,7 +127,7 @@ impl Update {
         unbonder_key: &PublicKey,
         amount: u64,
     ) {
-        let account_hash = validator_key.to_account_hash();
+        let account_hash = unbonder_key.to_account_hash();
         let unbonds = self
             .entries
             .get(&Key::Unbond(account_hash))
@@ -146,18 +146,18 @@ impl Update {
     #[track_caller]
     pub(crate) fn assert_unbonding_purses<'a>(
         &self,
-        validator_key: &PublicKey,
+        unbonder_key: &PublicKey,
         expected: impl IntoIterator<Item = (URef, &'a PublicKey, u64)>,
     ) {
         let mut expected: Vec<_> = expected
             .into_iter()
-            .map(|(bid_purse, unbonder_key, amount)| {
+            .map(|(bid_purse, validator_key, amount)| {
                 (validator_key, bid_purse, unbonder_key, U512::from(amount))
             })
             .collect();
         let mut data: Vec<_> = self
             .entries
-            .get(&Key::Unbond(validator_key.to_account_hash()))
+            .get(&Key::Unbond(unbonder_key.to_account_hash()))
             .expect("should have unbonds for the account")
             .as_unbonding()
             .expect("should be unbonding purses")
@@ -210,10 +210,10 @@ impl Update {
     }
 
     #[track_caller]
-    pub(crate) fn assert_unbonds_empty(&self, validator_key: &PublicKey) {
+    pub(crate) fn assert_unbonds_empty(&self, unbonder_key: &PublicKey) {
         let unbonds = self
             .entries
-            .get(&Key::Unbond(validator_key.to_account_hash()))
+            .get(&Key::Unbond(unbonder_key.to_account_hash()))
             .expect("should have unbond purses")
             .as_unbonding()
             .expect("should be vec of unbonds");

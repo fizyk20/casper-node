@@ -185,7 +185,7 @@ impl MockStateReader {
 
         let withdraws = self
             .withdraws
-            .entry(withdraw.validator_public_key().to_account_hash())
+            .entry(withdraw.unbonder_public_key().to_account_hash())
             .or_default();
         withdraws.push(withdraw);
         self
@@ -216,7 +216,7 @@ impl MockStateReader {
 
         let unbonds = self
             .unbonds
-            .entry(unbond.validator_public_key().to_account_hash())
+            .entry(unbond.unbonder_public_key().to_account_hash())
             .or_default();
         unbonds.push(unbond);
         self
@@ -1605,7 +1605,7 @@ fn should_slash_a_validator_and_delegator_with_enqueued_withdraws() {
     // check the withdraws under validator 1 are unchanged
     update.assert_key_absent(&Key::Withdraw(validator1.to_account_hash()));
 
-    // 7 keys should be written:
+    // 9 keys should be written:
     // - seigniorage recipients
     // - total supply
     // - bid for validator 2
@@ -1613,7 +1613,9 @@ fn should_slash_a_validator_and_delegator_with_enqueued_withdraws() {
     // - bonding purse balance for delegator 2
     // - bonding purse balance for past delegator 2
     // - empty WithdrawPurses for validator 2
-    assert_eq!(update.len(), 7);
+    // - empty WithdrawPurses for delegator 2
+    // - empty WithdrawPurses for past delegator 2
+    assert_eq!(update.len(), 9);
 }
 
 #[test]
@@ -1726,11 +1728,12 @@ fn should_slash_a_validator_and_delegator_with_enqueued_unbonds() {
 
     // check the unbonds under validator 2 are cleared
     update.assert_unbonds_empty(&validator2);
+    update.assert_unbonds_empty(&delegator2);
 
     // check the withdraws under validator 1 are unchanged
     update.assert_key_absent(&Key::Unbond(validator1.to_account_hash()));
 
-    // 7 keys should be written:
+    // 9 keys should be written:
     // - seigniorage recipients
     // - total supply
     // - bid for validator 2
@@ -1738,7 +1741,9 @@ fn should_slash_a_validator_and_delegator_with_enqueued_unbonds() {
     // - bonding purse balance for delegator 2
     // - bonding purse balance for past delegator 2
     // - empty UnbondingPurses for validator 2
-    assert_eq!(update.len(), 7);
+    // - empty UnbondingPurses for delegator 2
+    // - empty UnbondingPurses for past delegator 2
+    assert_eq!(update.len(), 9);
 }
 
 #[test]
@@ -1934,6 +1939,11 @@ fn should_handle_unbonding_to_a_delegator_correctly() {
         .find(|&purse| purse.unbonder_public_key() == &old_validator)
         .map(|purse| *purse.bonding_purse())
         .expect("A bonding purse for the validator");
+    let unbonding_purses = reader
+        .get_unbonds()
+        .get(&delegator.to_account_hash())
+        .cloned()
+        .expect("should have unbond purses");
     let delegator_purse = unbonding_purses
         .iter()
         .find(|&purse| purse.unbonder_public_key() == &delegator)
@@ -1949,10 +1959,17 @@ fn should_handle_unbonding_to_a_delegator_correctly() {
         [
             // Manual unbondings:
             (validator_purse, &old_validator, 1),
-            (delegator_purse, &delegator, 1),
             // To empty the validator:
             (validator_purse, &old_validator, OLD_STAKE - 1),
-            (delegator_purse, &delegator, DELEGATOR_STAKE - 1),
+        ],
+    );
+    update.assert_unbonding_purses(
+        &delegator,
+        [
+            // Manual unbondings:
+            (delegator_purse, &old_validator, 1),
+            // To empty the validator:
+            (delegator_purse, &old_validator, DELEGATOR_STAKE - 1),
         ],
     );
 
@@ -1991,18 +2008,19 @@ fn should_handle_unbonding_to_a_delegator_correctly() {
     update.assert_written_purse_is_unit(*bid_write.bonding_purse());
     update.assert_written_balance(*bid_write.bonding_purse(), NEW_STAKE);
 
-    // 10 keys should be written:
+    // 11 keys should be written:
     // - seigniorage recipients
     // - total supply
     // - bid for old validator
     // - unbonding purse for old validator
+    // - unbonding purse for old delegator
     // - account for new validator
     // - main purse for account for new validator
     // - main purse balance for account for new validator
     // - bid for new validator
     // - bonding purse for new validator
     // - bonding purse balance for new validator
-    assert_eq!(update.len(), 10);
+    assert_eq!(update.len(), 11);
 }
 
 #[test]
@@ -2202,6 +2220,11 @@ fn should_handle_legacy_unbonding_to_a_delegator_correctly() {
         .find(|&purse| purse.unbonder_public_key() == &old_validator)
         .map(|purse| *purse.bonding_purse())
         .expect("A bonding purse for the validator");
+    let unbonding_purses = reader
+        .get_unbonds()
+        .get(&delegator.to_account_hash())
+        .cloned()
+        .expect("should have unbond purses");
     let delegator_purse = unbonding_purses
         .iter()
         .find(|&purse| purse.unbonder_public_key() == &delegator)
@@ -2217,10 +2240,17 @@ fn should_handle_legacy_unbonding_to_a_delegator_correctly() {
         [
             // Manual unbondings (the legacy withdraw purses won't appear here):
             (validator_purse, &old_validator, 1),
-            (delegator_purse, &delegator, 1),
             // To empty the validator:
             (validator_purse, &old_validator, OLD_STAKE - 2),
-            (delegator_purse, &delegator, DELEGATOR_STAKE - 2),
+        ],
+    );
+    update.assert_unbonding_purses(
+        &delegator,
+        [
+            // Manual unbondings (the legacy withdraw purses won't appear here):
+            (delegator_purse, &old_validator, 1),
+            // To empty the validator:
+            (delegator_purse, &old_validator, DELEGATOR_STAKE - 2),
         ],
     );
 
@@ -2259,16 +2289,17 @@ fn should_handle_legacy_unbonding_to_a_delegator_correctly() {
     update.assert_written_purse_is_unit(*bid_write.bonding_purse());
     update.assert_written_balance(*bid_write.bonding_purse(), NEW_STAKE);
 
-    // 10 keys should be written:
+    // 11 keys should be written:
     // - seigniorage recipients
     // - total supply
     // - bid for old validator
     // - unbonding purse for old validator
+    // - unbonding purse for old delegator
     // - account for new validator
     // - main purse for account for new validator
     // - main purse balance for account for new validator
     // - bid for new validator
     // - bonding purse for new validator
     // - bonding purse balance for new validator
-    assert_eq!(update.len(), 10);
+    assert_eq!(update.len(), 11);
 }
